@@ -1,12 +1,13 @@
 import cv2
 from hand_tracker import HandTracker
 from user_interface import HoverSelectUI
+from send_data import ArduinoController
+
 
 def main():
-    # macOS-friendly backend. If black screen: try camera index 1 or remove backend flag.
-    cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cap.set(cv2.CAP_PROP_FPS, 30)
 
@@ -16,6 +17,7 @@ def main():
 
     tracker = HandTracker(max_num_hands=1)
     ui = HoverSelectUI(dwell_seconds=1.5, smoothing_alpha=0.25, cursor_radius=10)
+    arduino = ArduinoController(port='COM5')
 
     try:
         while True:
@@ -23,7 +25,7 @@ def main():
             if not ok:
                 continue
 
-            # mirror view (nice for mirror UX)
+            # mirror view
             frame = cv2.flip(frame, 1)
             h, w, _ = frame.shape
 
@@ -34,8 +36,15 @@ def main():
             # UI update + draw
             events = ui.update_and_draw(frame)
             for e in events:
-                # For now, just print events. Later you can trigger actual actions.
                 print(e)
+
+                # Map UI events to Arduino commands
+                if e == "selected:Toggle Overlay":
+                    arduino.send_cmd(0x01)
+                elif e == "selected:Start Demo Mode":
+                    arduino.send_cmd(0x02)
+                elif e == "selected:Reset / Clear":
+                    arduino.send_cmd(0x03)
 
             cv2.imshow("Hand UI Hover Select (Modular)", frame)
             key = cv2.waitKey(1) & 0xFF
@@ -44,8 +53,10 @@ def main():
 
     finally:
         tracker.close()
+        arduino.close()
         cap.release()
         cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     main()

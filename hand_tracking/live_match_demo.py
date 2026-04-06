@@ -14,6 +14,7 @@ from hand_tracking.matching.match import find_best_database_matches
 WINDOW_TITLE = "Smart Mirror Live Match Demo"
 MATCH_BACKEND = "insightface"
 MATCH_INTERVAL_SECONDS = 1.5
+MATCH_DISPLAY_SECONDS = 10.0
 TOP_K_MATCHES = 3
 
 
@@ -328,7 +329,12 @@ def draw_match_panel(frame, demo_active, status_text, matches):
 def main():
     initialize_database()
 
-    cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+
+    # wsl videocapture
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cap.set(cv2.CAP_PROP_FPS, 30)
@@ -351,6 +357,7 @@ def main():
 
     demo_active = False
     last_match_t = 0.0
+    last_display_t = 0.0
     last_status_text = "Hover over Start Demo Mode to begin."
     last_matches = []
 
@@ -368,17 +375,18 @@ def main():
 
             events = ui.update_and_draw(frame)
             for event in events:
-                if event == "selected:Start Demo Mode":
+                if event == "Selected: Start Demo Mode":
                     demo_active = not demo_active
                     if demo_active:
                         last_status_text = "Demo started. Looking for a face..."
                     else:
                         last_status_text = "Demo stopped. Hover to start again."
                         last_matches = []
-                elif event == "selected:Reset / Clear":
+                elif event == "Selected: Reset / Clear":
                     demo_active = False
                     last_status_text = "Reset complete. Standing by."
                     last_matches = []
+                    last_display_t = 0.0
 
             now = time.time()
             if demo_active and now - last_match_t >= MATCH_INTERVAL_SECONDS:
@@ -386,18 +394,15 @@ def main():
                 try:
                     result = embedder.embed_bgr_image(frame)
                     matches = find_best_database_matches(
-                        result.embedding,
-                        result.model_name,
-                        top_k=TOP_K_MATCHES,
+                        result.embedding, result.model_name, top_k=TOP_K_MATCHES
                     )
-                    if matches:
+                    if matches and now - last_display_t >= MATCH_DISPLAY_SECONDS:
                         last_matches = matches
+                        last_display_t = now
                         last_status_text = "Latest face match results:"
-                    else:
-                        last_matches = []
-                        last_status_text = "No enrolled profiles found for this backend."
+                    elif not matches:
+                        last_status_text = "No face detected — holding last match."
                 except Exception as exc:
-                    last_matches = []
                     last_status_text = f"Matching paused: {exc}"
 
             draw_match_panel(frame, demo_active, last_status_text, last_matches)

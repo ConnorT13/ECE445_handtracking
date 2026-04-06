@@ -199,7 +199,7 @@ class HoverSelectUI:
             if elapsed >= self.dwell_seconds:
                 label = self.buttons[self.hovered_idx].label
                 self._handle_selection(self.hovered_idx)
-                events.append(f"selected:{label}")
+                events.append(f"Selected: {label}")
 
                 # reset so it doesn't instantly retrigger
                 self.hovered_idx = None

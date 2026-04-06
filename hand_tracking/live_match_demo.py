@@ -352,6 +352,9 @@ def main():
         cv2.destroyAllWindows()
         return
 
+    # FSM states: "idle" -> "active"
+    state = "idle"
+
     demo_active = False
     last_match_t = 0.0
     last_status_text = "Hover over Start Demo Mode to begin."
@@ -363,6 +366,29 @@ def main():
             if not ok:
                 continue
 
+            key = cv2.waitKey(1) & 0xFF
+            if key in (27, ord("q")):
+                break
+
+            if state == "idle":
+                h, w, _ = frame.shape
+                black = np.zeros((h, w, 3), dtype=np.uint8)
+                cv2.putText(
+                    black,
+                    "Press Enter to begin",
+                    (w // 2 - 200, h // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.2,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+                cv2.imshow(WINDOW_TITLE, black)
+                if key == 13:  # Enter
+                    state = "active"
+                continue
+
+            # --- active state ---
             frame = cv2.flip(frame, 1)
             h, w, _ = frame.shape
 
@@ -402,9 +428,6 @@ def main():
             draw_match_panel(frame, demo_active, last_status_text, last_matches)
 
             cv2.imshow(WINDOW_TITLE, frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key in (27, ord("q")):
-                break
 
     finally:
         embedder.close()

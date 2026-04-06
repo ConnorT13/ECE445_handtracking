@@ -6,7 +6,11 @@ from send_data import ArduinoController
 
 def main():
     # cap = cv2.VideoCapture(0, cv2.CAP_DCAPSHOW) # WINDOWS Videocapture
-    cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION) # MAC Videocapture
+    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION) # MAC Videocapture
+    
+    # wsl videocapture
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -37,14 +41,14 @@ def main():
             # UI update + draw
             events = ui.update_and_draw(frame)
             for e in events:
-                print(e)
+                print(f"[UI Event] {e}")
 
                 # Map UI events to Arduino commands
-                if e == "selected:Toggle Overlay":
+                if e == "Selected: Toggle Overlay":
                     arduino.send_cmd(0x01)
-                elif e == "selected:Start Demo Mode":
+                elif e == "Selected: Start Demo Mode":
                     arduino.send_cmd(0x02)
-                elif e == "selected:Reset / Clear":
+                elif e == "Selected: Reset / Clear":
                     arduino.send_cmd(0x03)
 
             cv2.imshow("Hand UI Hover Select (Modular)", frame)

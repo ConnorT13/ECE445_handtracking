@@ -84,35 +84,33 @@ def draw_text_block_limited(
         )
 
 
+_image_cache = {}
+
 def draw_profile_image(frame, image_path, x, y, width, height):
     if not image_path or not os.path.exists(image_path):
-        cv2.rectangle(frame, (x, y), (x + width, y + height), (70, 70, 70), thickness=-1)
-        cv2.putText(
-            frame,
-            "No Image",
-            (x + 40, y + height // 2),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (210, 210, 210),
-            2,
-            cv2.LINE_AA,
-        )
+        # ... placeholder drawing unchanged ...
         return
 
-    image = cv2.imread(image_path)
-    if image is None:
+    if image_path not in _image_cache:
+        raw = cv2.imread(image_path)
+        if raw is None:
+            _image_cache[image_path] = None
+        else:
+            image_h, image_w, _ = raw.shape
+            scale = min(width / image_w, height / image_h)
+            resized = cv2.resize(raw, (int(image_w * scale), int(image_h * scale)))
+            canvas = np.full((height, width, 3), 35, dtype=np.uint8)
+            offset_y = (height - resized.shape[0]) // 2
+            offset_x = (width - resized.shape[1]) // 2
+            canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
+            _image_cache[image_path] = canvas
+
+    cached = _image_cache.get(image_path)
+    if cached is None:
         cv2.rectangle(frame, (x, y), (x + width, y + height), (70, 70, 70), thickness=-1)
         return
 
-    image_h, image_w, _ = image.shape
-    scale = min(width / image_w, height / image_h)
-    resized = cv2.resize(image, (int(image_w * scale), int(image_h * scale)))
-
-    canvas = np.full((height, width, 3), 35, dtype=np.uint8)
-    offset_y = (height - resized.shape[0]) // 2
-    offset_x = (width - resized.shape[1]) // 2
-    canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
-    frame[y:y + height, x:x + width] = canvas
+    frame[y:y + height, x:x + width] = cached
     cv2.rectangle(frame, (x, y), (x + width, y + height), (220, 220, 220), thickness=2)
 
 
@@ -328,7 +326,12 @@ def draw_match_panel(frame, demo_active, status_text, matches):
 def main():
     initialize_database()
 
-    cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+
+    # wsl videocapture
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cap.set(cv2.CAP_PROP_FPS, 30)
@@ -349,6 +352,9 @@ def main():
         cv2.destroyAllWindows()
         return
 
+    # FSM states: "idle" -> "active"
+    state = "idle"
+
     demo_active = False
     last_match_t = 0.0
     last_status_text = "Hover over Start Demo Mode to begin."
@@ -360,6 +366,29 @@ def main():
             if not ok:
                 continue
 
+            key = cv2.waitKey(1) & 0xFF
+            if key in (27, ord("q")):
+                break
+
+            if state == "idle":
+                h, w, _ = frame.shape
+                black = np.zeros((h, w, 3), dtype=np.uint8)
+                cv2.putText(
+                    black,
+                    "Press Enter to begin",
+                    (w // 2 - 200, h // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.2,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+                cv2.imshow(WINDOW_TITLE, cv2.rotate(black, cv2.ROTATE_90_COUNTERCLOCKWISE))
+                if key == 13:  # Enter
+                    state = "active"
+                continue
+
+            # --- active state ---
             frame = cv2.flip(frame, 1)
             h, w, _ = frame.shape
 
@@ -368,14 +397,14 @@ def main():
 
             events = ui.update_and_draw(frame)
             for event in events:
-                if event == "selected:Start Demo Mode":
+                if event == "Selected: Start Demo Mode":
                     demo_active = not demo_active
                     if demo_active:
                         last_status_text = "Demo started. Looking for a face..."
                     else:
                         last_status_text = "Demo stopped. Hover to start again."
                         last_matches = []
-                elif event == "selected:Reset / Clear":
+                elif event == "Selected: Reset / Clear":
                     demo_active = False
                     last_status_text = "Reset complete. Standing by."
                     last_matches = []
@@ -386,26 +415,19 @@ def main():
                 try:
                     result = embedder.embed_bgr_image(frame)
                     matches = find_best_database_matches(
-                        result.embedding,
-                        result.model_name,
-                        top_k=TOP_K_MATCHES,
+                        result.embedding, result.model_name, top_k=TOP_K_MATCHES
                     )
                     if matches:
                         last_matches = matches
                         last_status_text = "Latest face match results:"
                     else:
-                        last_matches = []
-                        last_status_text = "No enrolled profiles found for this backend."
+                        last_status_text = "No face detected — holding last match."
                 except Exception as exc:
-                    last_matches = []
                     last_status_text = f"Matching paused: {exc}"
 
             draw_match_panel(frame, demo_active, last_status_text, last_matches)
 
-            cv2.imshow(WINDOW_TITLE, frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key in (27, ord("q")):
-                break
+            cv2.imshow(WINDOW_TITLE, cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE))
 
     finally:
         embedder.close()

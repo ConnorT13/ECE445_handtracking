@@ -40,6 +40,7 @@ class HoverSelectUI:
 
         self.cursor_x = None
         self.cursor_y = None
+        self.last_hand_seen_t = None
 
         self.prev_t = time.time()
         self.fps = 0.0
@@ -75,6 +76,7 @@ class HoverSelectUI:
             self.hover_start_t = None
             return
 
+        self.last_hand_seen_t = time.time()
         tx = int(tip_norm[0] * frame_w)
         ty = int(tip_norm[1] * frame_h)
 
@@ -113,6 +115,8 @@ class HoverSelectUI:
 
     def _draw_cursor(self, frame):
         if self.cursor_x is None or self.cursor_y is None:
+            return
+        if self.last_hand_seen_t is None or time.time() - self.last_hand_seen_t >= 1.0:
             return
         x, y = self.cursor_x, self.cursor_y
         r = self.cursor_radius
@@ -199,7 +203,7 @@ class HoverSelectUI:
             if elapsed >= self.dwell_seconds:
                 label = self.buttons[self.hovered_idx].label
                 self._handle_selection(self.hovered_idx)
-                events.append(f"selected:{label}")
+                events.append(f"Selected: {label}")
 
                 # reset so it doesn't instantly retrigger
                 self.hovered_idx = None

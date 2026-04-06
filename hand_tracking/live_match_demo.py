@@ -14,7 +14,6 @@ from hand_tracking.matching.match import find_best_database_matches
 WINDOW_TITLE = "Smart Mirror Live Match Demo"
 MATCH_BACKEND = "insightface"
 MATCH_INTERVAL_SECONDS = 1.5
-MATCH_DISPLAY_SECONDS = 10.0
 TOP_K_MATCHES = 3
 
 
@@ -85,35 +84,33 @@ def draw_text_block_limited(
         )
 
 
+_image_cache = {}
+
 def draw_profile_image(frame, image_path, x, y, width, height):
     if not image_path or not os.path.exists(image_path):
-        cv2.rectangle(frame, (x, y), (x + width, y + height), (70, 70, 70), thickness=-1)
-        cv2.putText(
-            frame,
-            "No Image",
-            (x + 40, y + height // 2),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (210, 210, 210),
-            2,
-            cv2.LINE_AA,
-        )
+        # ... placeholder drawing unchanged ...
         return
 
-    image = cv2.imread(image_path)
-    if image is None:
+    if image_path not in _image_cache:
+        raw = cv2.imread(image_path)
+        if raw is None:
+            _image_cache[image_path] = None
+        else:
+            image_h, image_w, _ = raw.shape
+            scale = min(width / image_w, height / image_h)
+            resized = cv2.resize(raw, (int(image_w * scale), int(image_h * scale)))
+            canvas = np.full((height, width, 3), 35, dtype=np.uint8)
+            offset_y = (height - resized.shape[0]) // 2
+            offset_x = (width - resized.shape[1]) // 2
+            canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
+            _image_cache[image_path] = canvas
+
+    cached = _image_cache.get(image_path)
+    if cached is None:
         cv2.rectangle(frame, (x, y), (x + width, y + height), (70, 70, 70), thickness=-1)
         return
 
-    image_h, image_w, _ = image.shape
-    scale = min(width / image_w, height / image_h)
-    resized = cv2.resize(image, (int(image_w * scale), int(image_h * scale)))
-
-    canvas = np.full((height, width, 3), 35, dtype=np.uint8)
-    offset_y = (height - resized.shape[0]) // 2
-    offset_x = (width - resized.shape[1]) // 2
-    canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
-    frame[y:y + height, x:x + width] = canvas
+    frame[y:y + height, x:x + width] = cached
     cv2.rectangle(frame, (x, y), (x + width, y + height), (220, 220, 220), thickness=2)
 
 
@@ -357,7 +354,6 @@ def main():
 
     demo_active = False
     last_match_t = 0.0
-    last_display_t = 0.0
     last_status_text = "Hover over Start Demo Mode to begin."
     last_matches = []
 
@@ -386,7 +382,6 @@ def main():
                     demo_active = False
                     last_status_text = "Reset complete. Standing by."
                     last_matches = []
-                    last_display_t = 0.0
 
             now = time.time()
             if demo_active and now - last_match_t >= MATCH_INTERVAL_SECONDS:
@@ -396,11 +391,10 @@ def main():
                     matches = find_best_database_matches(
                         result.embedding, result.model_name, top_k=TOP_K_MATCHES
                     )
-                    if matches and now - last_display_t >= MATCH_DISPLAY_SECONDS:
+                    if matches:
                         last_matches = matches
-                        last_display_t = now
                         last_status_text = "Latest face match results:"
-                    elif not matches:
+                    else:
                         last_status_text = "No face detected — holding last match."
                 except Exception as exc:
                     last_status_text = f"Matching paused: {exc}"

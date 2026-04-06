@@ -35,6 +35,18 @@ Current live test setup:
   - performs face matching only when demo is active
   - shows matched image/profile info on screen
 
+### Raspberry Pi Status
+
+- The project architecture is intended for Raspberry Pi 4 deployment.
+- The current repository is not yet validated end-to-end on Raspberry Pi 4.
+- The largest deployment risk is the current `InsightFace` matching backend.
+- `InsightFace` works on the development machine and gives good separation, but it may be too heavy for responsive real-time matching on a Pi 4 without optimization.
+- The current live demo also uses a Mac-specific OpenCV camera backend (`cv2.CAP_AVFOUNDATION`), which must be changed for Pi/Linux.
+- Current assessment:
+  - database layer: portable
+  - hand UI flow: portable
+  - current live matching stack on Pi 4: possible, but not confirmed and likely needs tuning
+
 ### Not Finished
 
 - No full Raspberry Pi deployment pass yet
@@ -450,12 +462,14 @@ This made the backend usable offline within the repo.
 6. Add a transition from match card to richer biography/profile page.
 7. Add presence detection / wake-on-user flow.
 8. Add import pipeline from structured real data source.
+9. Replace Mac-specific camera settings with Raspberry Pi-compatible capture settings.
+10. Benchmark `InsightFace` on Raspberry Pi 4 and decide whether to keep it, throttle it, or replace it with a lighter embedding model.
 
 ### Long Term
 
-9. Optimize for Raspberry Pi.
-10. Evaluate whether InsightFace runtime/performance is acceptable on target hardware.
-11. If needed, replace or quantize the recognition model for Pi deployment.
+11. Optimize for Raspberry Pi.
+12. Evaluate whether InsightFace runtime/performance is acceptable on target hardware.
+13. If needed, replace or quantize the recognition model for Pi deployment.
 
 
 ## If Another LLM Continues This Project
@@ -469,4 +483,3 @@ The highest-signal entry points are:
 
 Suggested first question for any follow-on work:
 - "Are we optimizing the current demo UX, expanding the profile dataset, or preparing for Raspberry Pi deployment?"
-

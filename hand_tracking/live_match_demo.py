@@ -383,7 +383,7 @@ def main():
                     2,
                     cv2.LINE_AA,
                 )
-                cv2.imshow(WINDOW_TITLE, cv2.rotate(black, cv2.ROTATE_90_CLOCKWISE))
+                cv2.imshow(WINDOW_TITLE, cv2.rotate(black, cv2.ROTATE_90_COUNTERCLOCKWISE))
                 if key == 13:  # Enter
                     state = "active"
                 continue
@@ -427,7 +427,7 @@ def main():
 
             draw_match_panel(frame, demo_active, last_status_text, last_matches)
 
-            cv2.imshow(WINDOW_TITLE, cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE))
+            cv2.imshow(WINDOW_TITLE, cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE))
 
     finally:
         embedder.close()

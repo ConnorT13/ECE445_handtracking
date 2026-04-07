@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from .db_init import get_database_path
 
@@ -178,3 +179,68 @@ def get_recent_logs(limit=10):
     connection.close()
 
     return rows
+
+
+def upsert_face_embedding(professional_id, model_name, embedding):
+    """
+    Inserts or updates a face embedding for a professional/model pair.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    embedding_json = json.dumps(embedding)
+
+    cursor.execute("""
+        INSERT INTO face_embeddings (professional_id, model_name, embedding_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(professional_id, model_name)
+        DO UPDATE SET embedding_json = excluded.embedding_json
+    """, (professional_id, model_name, embedding_json))
+
+    connection.commit()
+    connection.close()
+
+
+def get_face_embedding(professional_id, model_name):
+    """
+    Returns a decoded embedding list for a professional/model pair.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT embedding_json
+        FROM face_embeddings
+        WHERE professional_id = ? AND model_name = ?
+    """, (professional_id, model_name))
+
+    row = cursor.fetchone()
+    connection.close()
+
+    if row is None:
+        return None
+
+    return json.loads(row[0])
+
+
+def get_all_face_embeddings(model_name):
+    """
+    Returns all embeddings for a given model name.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT professional_id, embedding_json
+        FROM face_embeddings
+        WHERE model_name = ?
+        ORDER BY professional_id ASC
+    """, (model_name,))
+
+    rows = cursor.fetchall()
+    connection.close()
+
+    return [(professional_id, json.loads(embedding_json)) for professional_id, embedding_json in rows]

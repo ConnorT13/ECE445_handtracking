@@ -54,6 +54,18 @@ def initialize_database():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS face_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            professional_id INTEGER NOT NULL,
+            model_name TEXT NOT NULL,
+            embedding_json TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(professional_id, model_name),
+            FOREIGN KEY (professional_id) REFERENCES professionals(id)
+        )
+    """)
+
     connection.commit()
     connection.close()
 

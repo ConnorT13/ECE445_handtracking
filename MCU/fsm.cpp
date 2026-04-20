@@ -70,6 +70,7 @@ static void tick_scanning() {
 static void tick_match_pending() {
     if (millis() - stateEnteredAt >= 10000UL) {
         hal_led_set(false);  // turn strip on (inverted wiring)
+        hal_uart_send("RESET\n");
         enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
     }
 }
@@ -78,7 +79,6 @@ static void tick_match_pending() {
 
 static void tick_match_displayed() {
     if (millis() - stateEnteredAt >= 10000UL) {
-        hal_uart_send("RESET\n");
         enter(State::IDLE, "IDLE");
     }
 }

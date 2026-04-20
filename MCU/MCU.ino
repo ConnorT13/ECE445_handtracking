@@ -9,5 +9,7 @@ void setup() {
 }
 
 void loop() {
-    fsm_tick();
+    // fsm_tick();
+    hal_uart_send("CHECK\n");
+    delay(100);
 }

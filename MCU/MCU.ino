@@ -1,11 +1,13 @@
-// main.ino
+#include "hal.h"
+#include "fsm.h"
+
 void setup() {
-    pinMode(13, OUTPUT);
+    Serial.begin(9600);
+    pinMode(HAL_LED_PIN, OUTPUT);
+    hal_tof_init();
+    fsm_init();
 }
 
 void loop() {
-    digitalWrite(13, HIGH);
-    delay(1000);
-    digitalWrite(13, LOW);
-    delay(1000);
+    fsm_tick();
 }

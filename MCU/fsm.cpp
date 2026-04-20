@@ -32,7 +32,7 @@ static void tick_idle() {
     if (hal_tof_read_mm() < 500) {
         enter(State::SCANNING, "SCANNING");
         // Entry actions
-        hal_led_set(false);
+        hal_led_set(true);
         hal_uart_send("PRESENCE\n");
     }
 }
@@ -41,14 +41,13 @@ static void tick_idle() {
 
 static void leave_scanning_idle() {
     hal_uart_send("RESET\n");
-    hal_led_set(true);
+    hal_led_set(false);
     enter(State::IDLE, "IDLE");
 }
 
 static void tick_scanning() {
     // 15-second timeout
     if (millis() - stateEnteredAt >= 15000UL) {
-        Serial.println("No match :(");
         leave_scanning_idle();
         return;
     }
@@ -59,7 +58,7 @@ static void tick_scanning() {
     if (strcmp(buf, "MATCH") == 0) {
         enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
         // Entry action
-        hal_led_set(true);
+        hal_led_set(false);
     } else if (strcmp(buf, "NO_MATCH") == 0) {
         leave_scanning_idle();
     }
@@ -80,7 +79,7 @@ void fsm_init() {
     state = State::IDLE;
     stateEnteredAt = millis();
     lastTofAt = 0;
-    hal_led_set(true);
+    hal_led_set(false);
     Serial.println(F("FSM: init -> IDLE"));
 }
 

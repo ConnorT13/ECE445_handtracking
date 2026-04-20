@@ -34,11 +34,18 @@ def rank_matches(query_embedding, candidate_embeddings, top_k=3):
     return scored_matches[:top_k]
 
 
-def find_best_database_matches(query_embedding, model_name, top_k=3):
+def find_best_database_matches(query_embedding, model_name, top_k=3, allowed_professional_ids=None):
     """
     Fetches embeddings from the database and returns ranked profile matches.
     """
     candidate_embeddings = get_all_face_embeddings(model_name)
+    if allowed_professional_ids is not None:
+        allowed_professional_ids = set(allowed_professional_ids)
+        candidate_embeddings = [
+            (professional_id, embedding)
+            for professional_id, embedding in candidate_embeddings
+            if professional_id in allowed_professional_ids
+        ]
 
     if not candidate_embeddings:
         return []

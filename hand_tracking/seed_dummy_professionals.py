@@ -90,15 +90,15 @@ DUMMY_PROFESSIONALS = [
     },
     {
         "name": "Connor Tan",
-        "title": "Quantum Control Engineer",
+        "title": "Quantum Hardware Engineer",
         "organization": "Pulse Logic Labs",
-        "quantum_area": "Quantum Control",
-        "short_bio": "Builds the signals and electronics that tell qubits what to do.",
-        "long_bio": "Leo tunes microwave pulses, calibrates control systems, and works closely with hardware and software teams to improve qubit performance.",
+        "quantum_area": "Quantum Hardware",
+        "short_bio": "Builds the electronics and hardware systems that help qubits run correctly.",
+        "long_bio": "Connor works on the hardware side of quantum systems, helping teams tune electronics, calibrate signals, and improve how quantum devices perform in experiments.",
         "image_path": "assets/images/connor_tan.png",
         "fun_fact": "He is a drummer and thinks a lot about timing and rhythm.",
         "video_url": "https://example.com/leo-chen",
-        "tags": ["hardware", "control_systems", "engineering", "problem_solving"],
+        "tags": ["hardware", "engineering", "hands_on", "problem_solving"],
     },
     {
         "name": "Dr. Hannah Brooks",
@@ -156,6 +156,7 @@ def reset_database():
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
 
+    cursor.execute("DELETE FROM demo_profile_links")
     cursor.execute("DELETE FROM face_embeddings")
     cursor.execute("DELETE FROM profile_tags")
     cursor.execute("DELETE FROM interaction_logs")

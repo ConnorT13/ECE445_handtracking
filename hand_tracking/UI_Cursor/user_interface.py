@@ -2,6 +2,65 @@ import cv2
 import time
 
 
+DEFAULT_LAYOUT_CONFIG = {
+    "VISIBLE_WIDTH_RATIO": 1.0,
+    "VISIBLE_HEIGHT_RATIO": 1.0,
+    "UI_SCALE": 1.0,
+    "UI_LEFT_MARGIN": 0.04,
+    "UI_TOP_MARGIN": 0.06,
+    "UI_ITEM_SPACING": 0.025,
+    "FONT_SCALE": 0.8,
+    "HEADER_SCALE": 0.85,
+    "FPS_SCALE": 0.85,
+    "BUTTON_WIDTH_RATIO": 0.42,
+    "BUTTON_HEIGHT_RATIO": 0.09,
+    "BUTTON_TEXT_PADDING_X": 12,
+    "BUTTON_TEXT_PADDING_Y": 8,
+    "PROGRESS_RADIUS": 38,
+    "PROGRESS_THICKNESS": 6,
+}
+
+
+def compute_safe_area(frame_w: int, frame_h: int, visible_width_ratio: float, visible_height_ratio: float):
+    safe_w = int(round(frame_w * visible_width_ratio))
+    safe_h = int(round(frame_h * visible_height_ratio))
+    safe_x = max(0, (frame_w - safe_w) // 2)
+    safe_y = max(0, (frame_h - safe_h) // 2)
+    return safe_x, safe_y, safe_w, safe_h
+
+
+def layout_menu_items(frame_w: int, frame_h: int, button_count: int, layout_config: dict):
+    safe_x, safe_y, safe_w, safe_h = compute_safe_area(
+        frame_w,
+        frame_h,
+        layout_config["VISIBLE_WIDTH_RATIO"],
+        layout_config["VISIBLE_HEIGHT_RATIO"],
+    )
+
+    ui_scale = layout_config["UI_SCALE"]
+    button_w = int(round(safe_w * layout_config["BUTTON_WIDTH_RATIO"] * ui_scale))
+    button_h = int(round(frame_h * layout_config["BUTTON_HEIGHT_RATIO"] * ui_scale))
+    button_w = max(180, min(button_w, safe_w - 10))
+    button_h = max(52, button_h)
+
+    x0 = safe_x + int(round(safe_w * layout_config["UI_LEFT_MARGIN"]))
+    y0 = safe_y + int(round(safe_h * layout_config["UI_TOP_MARGIN"]))
+    gap = max(16, int(round(safe_h * layout_config["UI_ITEM_SPACING"] * ui_scale)))
+
+    return {
+        "safe_x": safe_x,
+        "safe_y": safe_y,
+        "safe_w": safe_w,
+        "safe_h": safe_h,
+        "button_w": button_w,
+        "button_h": button_h,
+        "x0": x0,
+        "y0": y0,
+        "gap": gap,
+        "button_count": button_count,
+    }
+
+
 class Button:
     def __init__(self, label: str, x: int, y: int, w: int, h: int):
         self.label = label
@@ -29,10 +88,22 @@ class HoverSelectUI:
         dwell_seconds: float = 1.5,
         smoothing_alpha: float = 0.25,
         cursor_radius: int = 10,
+        button_labels=None,
+        header_text="Hover cursor over a button for 1.5s to select",
+        layout_config=None,
     ):
         self.dwell_seconds = dwell_seconds
         self.smoothing_alpha = smoothing_alpha
         self.cursor_radius = cursor_radius
+        self.button_labels = button_labels or [
+            "Toggle Overlay",
+            "Start Demo Mode",
+            "Reset / Clear",
+        ]
+        self.header_text = header_text
+        self.layout_config = dict(DEFAULT_LAYOUT_CONFIG)
+        if layout_config:
+            self.layout_config.update(layout_config)
 
         self.buttons = []
         self.hovered_idx = None
@@ -52,18 +123,38 @@ class HoverSelectUI:
         if self._initialized_layout:
             return
 
-        bw, bh = 300, 80
-        x0 = 60
-        y0 = 80
-        gap = 30
+        layout = layout_menu_items(frame_w, frame_h, len(self.button_labels), self.layout_config)
+        bw = layout["button_w"]
+        bh = layout["button_h"]
+        x0 = layout["x0"]
+        y0 = layout["y0"]
+        gap = layout["gap"]
+        self.buttons = []
 
-        self.buttons = [
-            Button("Toggle Overlay", x0, y0 + 0 * (bh + gap), bw, bh),
-            Button("Start Demo Mode", x0, y0 + 1 * (bh + gap), bw, bh),
-            Button("Reset / Clear", x0, y0 + 2 * (bh + gap), bw, bh),
-        ]
+        for index, label in enumerate(self.button_labels):
+            x = x0
+            y = y0 + index * (bh + gap)
+            self.buttons.append(Button(label, x, y, bw, bh))
 
         self._initialized_layout = True
+
+    def set_layout_config(self, layout_config):
+        self.layout_config = dict(DEFAULT_LAYOUT_CONFIG)
+        if layout_config:
+            self.layout_config.update(layout_config)
+        self.buttons = []
+        self.hovered_idx = None
+        self.hover_start_t = None
+        self._initialized_layout = False
+
+    def set_buttons(self, button_labels, header_text=None):
+        self.button_labels = button_labels
+        if header_text is not None:
+            self.header_text = header_text
+        self.buttons = []
+        self.hovered_idx = None
+        self.hover_start_t = None
+        self._initialized_layout = False
 
     def update_cursor_from_norm(self, tip_norm, frame_w: int, frame_h: int):
         """
@@ -105,9 +196,12 @@ class HoverSelectUI:
         cv2.putText(
             frame,
             text,
-            (btn.x + 12, btn.y + btn.h // 2 + 8),
+            (
+                btn.x + self.layout_config["BUTTON_TEXT_PADDING_X"],
+                btn.y + btn.h // 2 + self.layout_config["BUTTON_TEXT_PADDING_Y"],
+            ),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            self.layout_config["FONT_SCALE"],
             (240, 240, 240),
             2,
             cv2.LINE_AA,
@@ -174,12 +268,18 @@ class HoverSelectUI:
                 self.hover_start_t = now
 
         # Draw header
+        safe_x, safe_y, safe_w, _ = compute_safe_area(
+            w,
+            h,
+            self.layout_config["VISIBLE_WIDTH_RATIO"],
+            self.layout_config["VISIBLE_HEIGHT_RATIO"],
+        )
         cv2.putText(
             frame,
-            "Hover cursor over a button for 1.5s to select",
-            (60, 45),
+            self.header_text,
+            (safe_x + int(safe_w * self.layout_config["UI_LEFT_MARGIN"]), max(36, safe_y + 28)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.85,
+            self.layout_config["HEADER_SCALE"],
             (255, 255, 255),
             2,
             cv2.LINE_AA,
@@ -198,12 +298,18 @@ class HoverSelectUI:
             progress = min(1.0, elapsed / self.dwell_seconds)
 
             cx, cy = self.buttons[self.hovered_idx].center()
-            self._draw_progress_ring(frame, (cx, cy), progress)
+            self._draw_progress_ring(
+                frame,
+                (cx, cy),
+                progress,
+                radius=self.layout_config["PROGRESS_RADIUS"],
+                thickness=self.layout_config["PROGRESS_THICKNESS"],
+            )
 
             if elapsed >= self.dwell_seconds:
                 label = self.buttons[self.hovered_idx].label
                 self._handle_selection(self.hovered_idx)
-                events.append(f"Selected: {label}")
+                events.append(f"selected:{label}")
 
                 # reset so it doesn't instantly retrigger
                 self.hovered_idx = None
@@ -218,9 +324,9 @@ class HoverSelectUI:
         cv2.putText(
             frame,
             f"FPS: {self.fps:.1f}",
-            (w - 180, 45),
+            (w - 180, max(36, safe_y + 28)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.85,
+            self.layout_config["FPS_SCALE"],
             (255, 255, 255),
             2,
             cv2.LINE_AA,

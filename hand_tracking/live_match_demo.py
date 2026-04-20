@@ -58,6 +58,7 @@ FEATURED_CAREERS = [
 ]
 
 STATE_INTRO = "intro"
+STATE_WAIT_FOR_START = "wait_for_start"
 STATE_SELECT_CAREER = "select_career"
 STATE_MATCHING = "matching"
 STATE_PROFILE = "profile"
@@ -682,6 +683,10 @@ def draw_intro_screen(frame_shape, seconds_remaining):
     return frame
 
 
+def draw_wait_for_start_screen(frame_shape):
+    return np.zeros(frame_shape, dtype=np.uint8)
+
+
 def draw_profile_screen(frame_shape, professional, selected_career, matched_test_name):
     frame = np.full(frame_shape, 18, dtype=np.uint8)
     h, w, _ = frame_shape
@@ -866,9 +871,8 @@ def main():
         cv2.destroyAllWindows()
         return
 
-    state = STATE_SELECT_CAREER
-    intro_start_t = time.time()
-    state = STATE_INTRO
+    state = STATE_WAIT_FOR_START
+    intro_start_t = None
     selected_career = None
     matching_status = "Waiting to start matching."
     matched_professional = None
@@ -885,6 +889,17 @@ def main():
             frame = cv2.flip(frame, 1)
             display_frame = prepare_camera_frame(frame, visible_ratios)
             h, w, _ = display_frame.shape
+
+            if state == STATE_WAIT_FOR_START:
+                wait_frame = draw_wait_for_start_screen(display_frame.shape)
+                cv2.imshow(WINDOW_TITLE, rotate_output_frame(wait_frame))
+                key = cv2.waitKey(1) & 0xFF
+                if key in (27, ord("q")):
+                    break
+                if key == 13:
+                    intro_start_t = time.time()
+                    state = STATE_INTRO
+                continue
 
             if state == STATE_INTRO:
                 seconds_remaining = max(0.0, INTRO_DURATION_SECONDS - (time.time() - intro_start_t))

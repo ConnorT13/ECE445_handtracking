@@ -3,8 +3,7 @@
 
 void setup() {
     Serial.begin(9600);
-    pinMode(HAL_LED_PIN, OUTPUT);
-    hal_tof_init();
+    hal_tof_init();  // also initializes FastLED strip
     fsm_init();
 }
 

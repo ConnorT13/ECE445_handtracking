@@ -4,8 +4,9 @@
 #include <Arduino.h>
 #include <stddef.h>
 
-// LED on pin 8, active HIGH — change here if hardware moves
-#define HAL_LED_PIN 8
+// WS2812B strip on pin 6 — change HAL_LED_PIN or HAL_NUM_LEDS here if hardware moves
+#define HAL_LED_PIN  6
+#define HAL_NUM_LEDS 140
 
 // Stub: button on pin 7 simulates ToF presence during development (active LOW via INPUT_PULLUP)
 #define HAL_PRESENCE_BTN_PIN 7
@@ -17,7 +18,7 @@ void hal_tof_init();
 // or -1 if the sensor reports an out-of-range / error status.
 int16_t hal_tof_read_mm();
 
-// Drives the LED on HAL_LED_PIN HIGH (on=true) or LOW (on=false).
+// Sets the LED strip to full white (on=true) or off (on=false).
 void hal_led_set(bool on);
 
 // Sends a null-terminated string over the SoftwareSerial UART to the Pi.

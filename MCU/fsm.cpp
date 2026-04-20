@@ -48,7 +48,7 @@ static void leave_scanning_idle() {
 static void tick_scanning() {
     // 15-second timeout
     if (millis() - stateEnteredAt >= 15000UL) {
-        Serial.println("No match :(")
+        Serial.println("No match :(");
         leave_scanning_idle();
         return;
     }

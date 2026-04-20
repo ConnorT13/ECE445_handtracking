@@ -828,6 +828,7 @@ def main():
     ui_layout_config = build_ui_layout_config(visible_ratios)
     window_w, window_h = get_window_size()
     cv2.namedWindow(WINDOW_TITLE, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.resizeWindow(WINDOW_TITLE, window_w, window_h)
 
     cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)

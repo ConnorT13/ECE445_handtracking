@@ -33,13 +33,22 @@ UI_SCALE = 0.82
 UI_LEFT_MARGIN = 0.06
 UI_TOP_MARGIN = 0.10
 UI_ITEM_SPACING = 0.032
-FONT_SCALE = 0.68
-HEADER_SCALE = 0.74
-FPS_SCALE = 0.74
+FONT_SCALE = 0.60
+HEADER_SCALE = 0.58
+FPS_SCALE = 0.62
 BUTTON_WIDTH_RATIO = 0.44
 BUTTON_HEIGHT_RATIO = 0.07
 MATCHING_PANEL_MARGIN_X = 0.05
 MATCHING_PANEL_MARGIN_Y = 0.04
+INTRO_TITLE_SCALE = 0.78
+INTRO_SUBTITLE_SCALE = 0.60
+PROFILE_TITLE_SCALE = 0.78
+PROFILE_NAME_SCALE = 0.74
+TORSO_GUIDE_WIDTH_RATIO = 0.42
+TORSO_GUIDE_HEIGHT_RATIO = 0.74
+TORSO_GUIDE_X_OFFSET_RATIO = -0.08
+TORSO_GUIDE_Y_OFFSET_RATIO = 0.18
+TORSO_GUIDE_MENU_CLEARANCE_PX = 36
 FEATURED_CAREERS = [
     "Quantum Hardware",
     "Quantum Software",
@@ -171,14 +180,38 @@ def build_ui_layout_config(visible_ratios):
     }
 
 
-def get_torso_guide_geometry(frame_w, frame_h):
-    guide_h = int(frame_h * 0.72)
-    guide_w = int(frame_w * 0.30)
-    top_y = max(100, (frame_h - guide_h) // 2 - 10)
-    left_x = (frame_w - guide_w) // 2
+def get_torso_guide_geometry(frame_w, frame_h, min_left_x=None):
+    guide_h = int(frame_h * TORSO_GUIDE_HEIGHT_RATIO)
+    guide_w = int(frame_w * TORSO_GUIDE_WIDTH_RATIO)
+    center_x = frame_w // 2 + int(frame_w * TORSO_GUIDE_X_OFFSET_RATIO)
+    center_y = frame_h // 2 + int(frame_h * TORSO_GUIDE_Y_OFFSET_RATIO)
+    top_y = max(120, center_y - guide_h // 2)
+    left_x = center_x - guide_w // 2
     right_x = left_x + guide_w
     bottom_y = top_y + guide_h
-    center_x = frame_w // 2
+
+    if left_x < 0:
+        left_x = 0
+        right_x = guide_w
+        center_x = guide_w // 2
+    elif right_x > frame_w:
+        right_x = frame_w
+        left_x = frame_w - guide_w
+        center_x = left_x + guide_w // 2
+    if bottom_y > frame_h - 20:
+        bottom_y = frame_h - 20
+        top_y = bottom_y - guide_h
+
+    if min_left_x is not None and left_x < min_left_x:
+        shift = min_left_x - left_x
+        left_x += shift
+        right_x += shift
+        center_x += shift
+        if right_x > frame_w - 20:
+            overshoot = right_x - (frame_w - 20)
+            left_x -= overshoot
+            right_x -= overshoot
+            center_x -= overshoot
 
     head_radius_x = int(guide_w * 0.14)
     head_radius_y = int(guide_h * 0.155)
@@ -191,12 +224,12 @@ def get_torso_guide_geometry(frame_w, frame_h):
     waist_y = top_y + int(guide_h * 0.73)
     hip_y = bottom_y - int(guide_h * 0.02)
     neck_half_w = int(guide_w * 0.10)
-    shoulder_half_w = int(guide_w * 0.37)
-    chest_half_w = int(guide_w * 0.42)
-    waist_half_w = int(guide_w * 0.38)
-    arm_outer_half_w = int(guide_w * 0.50)
-    wrist_outer_half_w = int(guide_w * 0.49)
-    wrist_inner_half_w = int(guide_w * 0.34)
+    shoulder_half_w = int(guide_w * 0.41)
+    chest_half_w = int(guide_w * 0.46)
+    waist_half_w = int(guide_w * 0.42)
+    arm_outer_half_w = int(guide_w * 0.54)
+    wrist_outer_half_w = int(guide_w * 0.52)
+    wrist_inner_half_w = int(guide_w * 0.37)
     ear_radius_x = int(guide_w * 0.035)
     ear_radius_y = int(guide_h * 0.055)
     ear_y = head_center[1] + int(guide_h * 0.005)
@@ -328,11 +361,17 @@ def draw_torso_guide(frame, guide_geometry, label_text="Stand inside the guide f
         label_text,
         (x1 + 12, y1 - 12),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.58,
+        0.46,
         (240, 240, 240),
-        2,
+        1,
         cv2.LINE_AA,
     )
+
+
+def get_menu_right_edge(ui):
+    if not getattr(ui, "buttons", None):
+        return None
+    return max(button.x + button.w for button in ui.buttons)
 
 
 def wrap_text(text, max_chars):
@@ -377,6 +416,53 @@ def draw_text_block(frame, text, origin_x, origin_y, max_chars, line_height, col
             thickness,
             cv2.LINE_AA,
         )
+
+
+def draw_labeled_text_section(
+    frame,
+    title,
+    text,
+    x,
+    y,
+    width,
+    height,
+    max_chars,
+    line_height,
+    body_scale=0.48,
+    body_thickness=1,
+    title_scale=0.56,
+):
+    cv2.rectangle(frame, (x, y), (x + width, y + height), (36, 36, 36), thickness=-1)
+    cv2.rectangle(frame, (x, y), (x + width, y + height), (110, 110, 110), thickness=1)
+
+    title_y = y + 28
+    cv2.putText(
+        frame,
+        title,
+        (x + 16, title_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        title_scale,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    body_start_y = y + 58
+    bottom_padding = 16
+    usable_height = max(0, height - (body_start_y - y) - bottom_padding)
+    max_lines = max(1, usable_height // line_height)
+    draw_text_block(
+        frame,
+        text,
+        x + 16,
+        body_start_y,
+        max_chars=max_chars,
+        line_height=line_height,
+        color=(220, 220, 220),
+        max_lines=max_lines,
+        scale=body_scale,
+        thickness=body_thickness,
+    )
 
 
 _image_cache = {}
@@ -441,7 +527,7 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
     panel_margin_x = int(safe_area["w"] * MATCHING_PANEL_MARGIN_X)
     panel_margin_y = int(safe_area["h"] * MATCHING_PANEL_MARGIN_Y)
     panel_w = min(440, safe_area["w"] - 2 * panel_margin_x)
-    panel_h = 250
+    panel_h = 220
     panel_x = safe_area["x"] + panel_margin_x
     panel_y = safe_area["y"] + safe_area["h"] - panel_h - panel_margin_y
 
@@ -453,7 +539,7 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
         "Matching In Progress",
         (panel_x + 20, panel_y + 40),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.78,
+        0.66,
         (255, 255, 255),
         2,
         cv2.LINE_AA,
@@ -462,36 +548,36 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
         frame,
         f"Selected career: {selected_career}",
         panel_x + 20,
-        panel_y + 76,
-        max_chars=34,
-        line_height=24,
+        panel_y + 70,
+        max_chars=32,
+        line_height=20,
         color=(0, 255, 255),
         max_lines=2,
-        scale=0.58,
+        scale=0.50,
         thickness=1,
     )
     draw_text_block(
         frame,
         "Look at the camera. Once a face is matched, the full professional profile will replace this screen.",
         panel_x + 20,
-        panel_y + 118,
-        max_chars=36,
-        line_height=22,
+        panel_y + 104,
+        max_chars=34,
+        line_height=19,
         color=(215, 215, 215),
         max_lines=4,
-        scale=0.54,
+        scale=0.46,
         thickness=1,
     )
     draw_text_block(
         frame,
         status_text,
         panel_x + 20,
-        panel_y + 204,
-        max_chars=38,
-        line_height=22,
+        panel_y + 180,
+        max_chars=36,
+        line_height=18,
         color=(215, 215, 215),
-        max_lines=2,
-        scale=0.54,
+        max_lines=1,
+        scale=0.44,
         thickness=1,
     )
 
@@ -500,7 +586,7 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
         "Press 'r' to return to career selection.",
         (panel_x + 20, panel_y + panel_h - 18),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.52,
+        0.42,
         (200, 200, 200),
         1,
         cv2.LINE_AA,
@@ -523,35 +609,37 @@ def draw_intro_screen(frame_shape, seconds_remaining):
     cv2.putText(
         frame,
         f"Starts in: {seconds_display}",
-        (w - 340, 120),
+        (w - 260, 110),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.82,
+        0.68,
         (0, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-
-    cv2.putText(
-        frame,
-        "Welcome to the Quantum Career Smart Mirror",
-        (110, 150),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
-        (255, 255, 255),
         2,
         cv2.LINE_AA,
     )
 
     draw_text_block(
         frame,
+        "Welcome to the Quantum Career Smart Mirror",
+        110,
+        145,
+        max_chars=28,
+        line_height=34,
+        color=(255, 255, 255),
+        max_lines=2,
+        scale=INTRO_TITLE_SCALE,
+        thickness=2,
+    )
+
+    draw_text_block(
+        frame,
         "This device lets you explore quantum careers using hand gestures and live face matching.",
         110,
-        210,
-        max_chars=62,
-        line_height=30,
+        216,
+        max_chars=42,
+        line_height=26,
         color=(220, 220, 220),
-        max_lines=3,
-        scale=0.72,
+        max_lines=4,
+        scale=INTRO_SUBTITLE_SCALE,
         thickness=1,
     )
 
@@ -560,7 +648,7 @@ def draw_intro_screen(frame_shape, seconds_remaining):
         "How to Use It",
         (110, 320),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.88,
+        0.68,
         (255, 255, 255),
         2,
         cv2.LINE_AA,
@@ -569,24 +657,26 @@ def draw_intro_screen(frame_shape, seconds_remaining):
         frame,
         "1. Wait for the career selection screen.\n2. Use your hand to move the cursor.\n3. Hover over a quantum career for about 1.5 seconds.\n4. Look at the camera so the system can match your face.\n5. Read the matched professional profile on screen.",
         110,
-        360,
-        max_chars=65,
-        line_height=30,
+        352,
+        max_chars=43,
+        line_height=23,
         color=(220, 220, 220),
         max_lines=8,
-        scale=0.68,
+        scale=0.52,
         thickness=1,
     )
 
-    cv2.putText(
+    draw_text_block(
         frame,
         "Career selection will begin automatically after the countdown.",
-        (110, h - 130),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (220, 220, 220),
-        2,
-        cv2.LINE_AA,
+        110,
+        h - 110,
+        max_chars=44,
+        line_height=22,
+        color=(220, 220, 220),
+        max_lines=2,
+        scale=0.50,
+        thickness=1,
     )
 
     return frame
@@ -604,7 +694,7 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         "Matched Quantum Professional",
         (70, 88),
         cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
+        PROFILE_TITLE_SCALE,
         (255, 255, 255),
         2,
         cv2.LINE_AA,
@@ -614,11 +704,11 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         f"Career selected: {selected_career} | Face matched to: {matched_test_name}",
         70,
         120,
-        max_chars=74,
-        line_height=24,
+        max_chars=52,
+        line_height=20,
         color=(215, 215, 215),
-        max_lines=2,
-        scale=0.56,
+        max_lines=3,
+        scale=0.46,
         thickness=1,
     )
 
@@ -634,7 +724,7 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         professional[1],
         (text_x, 190),
         cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
+        PROFILE_NAME_SCALE,
         (255, 255, 255),
         2,
         cv2.LINE_AA,
@@ -644,11 +734,11 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         professional[2] or "Unknown title",
         text_x,
         228,
-        max_chars=34,
-        line_height=26,
+        max_chars=28,
+        line_height=22,
         color=(225, 225, 225),
         max_lines=2,
-        scale=0.72,
+        scale=0.58,
         thickness=1,
     )
     draw_text_block(
@@ -656,11 +746,11 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         professional[3] or "Unknown organization",
         text_x,
         288,
-        max_chars=40,
-        line_height=24,
+        max_chars=30,
+        line_height=20,
         color=(205, 205, 205),
         max_lines=2,
-        scale=0.6,
+        scale=0.50,
         thickness=1,
     )
     draw_text_block(
@@ -668,81 +758,54 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         f"Quantum Area: {professional[4] or 'Unknown'}",
         text_x,
         338,
-        max_chars=40,
-        line_height=24,
+        max_chars=30,
+        line_height=20,
         color=(0, 255, 255),
         max_lines=2,
-        scale=0.58,
+        scale=0.48,
         thickness=1,
     )
 
-    cv2.putText(
+    draw_labeled_text_section(
         frame,
         "Short Bio",
-        (70, 560),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    draw_text_block(
-        frame,
         professional[5] or "No short bio available.",
-        70,
-        592,
-        max_chars=90,
-        line_height=26,
-        color=(220, 220, 220),
-        max_lines=3,
-        scale=0.6,
-        thickness=1,
+        x=70,
+        y=530,
+        width=300,
+        height=150,
+        max_chars=34,
+        line_height=20,
+        body_scale=0.46,
+        title_scale=0.54,
     )
 
-    cv2.putText(
+    draw_labeled_text_section(
         frame,
         "Longer Description",
-        (410, 400),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    draw_text_block(
-        frame,
         professional[6] or "No long bio available.",
-        410,
-        432,
-        max_chars=48,
-        line_height=24,
-        color=(220, 220, 220),
-        max_lines=5,
-        scale=0.56,
-        thickness=1,
+        x=410,
+        y=390,
+        width=260,
+        height=170,
+        max_chars=28,
+        line_height=18,
+        body_scale=0.44,
+        title_scale=0.52,
     )
 
-    cv2.putText(
+    draw_labeled_text_section(
         frame,
         "Fun Fact",
-        (410, 570),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    draw_text_block(
-        frame,
         professional[8] or "No fun fact available.",
-        410,
-        602,
-        max_chars=48,
-        line_height=24,
-        color=(220, 220, 220),
-        max_lines=3,
-        scale=0.56,
-        thickness=1,
+        x=410,
+        y=590,
+        width=260,
+        height=110,
+        max_chars=28,
+        line_height=18,
+        body_scale=0.44,
+        title_scale=0.52,
     )
 
     cv2.putText(
@@ -750,7 +813,7 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         "Press 'r' to return to career selection. Press 'q' to quit.",
         (70, h - 52),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.48,
         (205, 205, 205),
         1,
         cv2.LINE_AA,
@@ -783,7 +846,7 @@ def main():
         smoothing_alpha=0.25,
         cursor_radius=10,
         button_labels=careers,
-        header_text="Choose one of these 5 quantum careers to begin the demo",
+        header_text="Choose a quantum career to begin",
         layout_config=ui_layout_config,
     )
 
@@ -838,15 +901,17 @@ def main():
                     selected_career = None
                     matched_professional = None
                     matched_test_name = None
-                    ui.set_buttons(careers, "Choose one of these 5 quantum careers to begin the demo")
+                    ui.set_buttons(careers, "Choose a quantum career to begin")
                     ui.set_layout_config(ui_layout_config)
                 continue
 
             if state == STATE_SELECT_CAREER:
-                guide_geometry = get_torso_guide_geometry(w, h)
                 tip_norm = tracker.get_index_tip_norm(display_frame)
                 ui.update_cursor_from_norm(tip_norm, w, h)
                 events = ui.update_and_draw(display_frame)
+                menu_right_edge = get_menu_right_edge(ui)
+                min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
+                guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
                 draw_torso_guide(display_frame, guide_geometry)
                 state_changed = False
                 for event in events:
@@ -870,7 +935,9 @@ def main():
                 if state_changed:
                     draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
             elif state == STATE_MATCHING:
-                guide_geometry = get_torso_guide_geometry(w, h)
+                menu_right_edge = get_menu_right_edge(ui)
+                min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
+                guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
                 draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
                 now = time.time()
                 if now - last_match_t >= MATCH_INTERVAL_SECONDS:
@@ -906,7 +973,7 @@ def main():
                 state = STATE_SELECT_CAREER
                 selected_career = None
                 ui.set_layout_config(ui_layout_config)
-                ui.set_buttons(careers, "Choose one of these 5 quantum careers to begin the demo")
+                ui.set_buttons(careers, "Choose a quantum career to begin")
 
     finally:
         embedder.close()

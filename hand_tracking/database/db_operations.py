@@ -99,6 +99,27 @@ def get_professional_by_id(professional_id):
     return row
 
 
+def get_professional_by_name(name):
+    """
+    Returns one professional profile by name.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT id, name, title, organization, quantum_area,
+               short_bio, long_bio, image_path, fun_fact, video_url, created_at
+        FROM professionals
+        WHERE name = ?
+    """, (name,))
+
+    row = cursor.fetchone()
+    connection.close()
+
+    return row
+
+
 def get_tags_for_professional(professional_id):
     """
     Returns all tags for a given professional.
@@ -136,6 +157,28 @@ def get_professionals_by_tag(tag):
         WHERE t.tag = ?
         ORDER BY p.name ASC
     """, (tag,))
+
+    rows = cursor.fetchall()
+    connection.close()
+
+    return rows
+
+
+def get_professionals_by_quantum_area(quantum_area):
+    """
+    Returns professionals for a given quantum area.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT id, name, title, organization, quantum_area,
+               short_bio, long_bio, image_path, fun_fact, video_url, created_at
+        FROM professionals
+        WHERE quantum_area = ?
+        ORDER BY name ASC
+    """, (quantum_area,))
 
     rows = cursor.fetchall()
     connection.close()
@@ -244,3 +287,44 @@ def get_all_face_embeddings(model_name):
     connection.close()
 
     return [(professional_id, json.loads(embedding_json)) for professional_id, embedding_json in rows]
+
+
+def set_demo_profile_link(source_professional_id, target_professional_id):
+    """
+    Points a source professional to a target profile for demo display.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        INSERT INTO demo_profile_links (source_professional_id, target_professional_id)
+        VALUES (?, ?)
+        ON CONFLICT(source_professional_id)
+        DO UPDATE SET target_professional_id = excluded.target_professional_id
+    """, (source_professional_id, target_professional_id))
+
+    connection.commit()
+    connection.close()
+
+
+def get_demo_profile_target(source_professional_id):
+    """
+    Returns the linked target professional row if one exists, otherwise None.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT p.id, p.name, p.title, p.organization, p.quantum_area,
+               p.short_bio, p.long_bio, p.image_path, p.fun_fact, p.video_url, p.created_at
+        FROM demo_profile_links d
+        JOIN professionals p ON p.id = d.target_professional_id
+        WHERE d.source_professional_id = ?
+    """, (source_professional_id,))
+
+    row = cursor.fetchone()
+    connection.close()
+
+    return row

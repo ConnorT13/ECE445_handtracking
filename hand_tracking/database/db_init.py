@@ -66,6 +66,17 @@ def initialize_database():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS demo_profile_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_professional_id INTEGER NOT NULL UNIQUE,
+            target_professional_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (source_professional_id) REFERENCES professionals(id),
+            FOREIGN KEY (target_professional_id) REFERENCES professionals(id)
+        )
+    """)
+
     connection.commit()
     connection.close()
 

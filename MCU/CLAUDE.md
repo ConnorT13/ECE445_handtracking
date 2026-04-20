@@ -4,7 +4,7 @@
 - Arduino Uno (stand-in for STM32F401 custom PCB)
 - VL53L0X ToF sensor on I2C (address 0x29)
 - LED on pin X (active HIGH)
-- UART to Pi: Serial (pins 0/1 on Uno, 115200 baud)
+- UART to Pi: Serial (pins 0/1 on Uno, 9600 baud)
 
 ### FSM States
 - IDLE: poll ToF every 100ms, light off, wait for presence

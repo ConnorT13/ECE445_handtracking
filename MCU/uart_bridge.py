@@ -13,13 +13,13 @@ except ImportError:
     sys.exit(1)
 
 try:
-    ser = serial.Serial("/dev/serial0", baudrate=115200, timeout=1)
+    ser = serial.Serial("/dev/serial0", baudrate=9600, timeout=1)
 except serial.SerialException as e:
     print(f"ERROR: could not open /dev/serial0 — {e}")
     print("Check raspi-config: disable serial login shell, enable hardware serial port.")
     sys.exit(1)
 
-print("[BRIDGE] Listening on /dev/serial0 at 115200 baud")
+print("[BRIDGE] Listening on /dev/serial0 at 9600 baud")
 
 while True:
     try:

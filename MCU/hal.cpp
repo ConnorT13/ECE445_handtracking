@@ -10,7 +10,7 @@ static SoftwareSerial piSerial(10, 11);
 // Also starts SoftwareSerial here — only one HAL init entry point exists.
 void hal_tof_init() {
     pinMode(HAL_PRESENCE_BTN_PIN, INPUT_PULLUP);
-    piSerial.begin(115200);
+    piSerial.begin(9600);
 }
 
 // Returns 200 mm (presence) when button is pressed, 2000 mm (empty) when released.

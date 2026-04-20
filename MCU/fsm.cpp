@@ -32,7 +32,7 @@ static void tick_idle() {
     if (hal_tof_read_mm() < 500) {
         enter(State::SCANNING, "SCANNING");
         // Entry actions
-        hal_led_set(true);
+        hal_led_set(false);
         hal_uart_send("PRESENCE\n");
     }
 }
@@ -41,7 +41,7 @@ static void tick_idle() {
 
 static void leave_scanning_idle() {
     hal_uart_send("RESET\n");
-    hal_led_set(false);
+    hal_led_set(true);
     enter(State::IDLE, "IDLE");
 }
 
@@ -59,7 +59,7 @@ static void tick_scanning() {
     if (strcmp(buf, "MATCH") == 0) {
         enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
         // Entry action
-        hal_led_set(false);
+        hal_led_set(true);
     } else if (strcmp(buf, "NO_MATCH") == 0) {
         leave_scanning_idle();
     }

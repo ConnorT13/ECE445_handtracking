@@ -25,9 +25,10 @@ int16_t hal_tof_read_mm() {
     return digitalRead(HAL_PRESENCE_BTN_PIN) == LOW ? 200 : 2000;
 }
 
-// Fills the strip white (on=true) or black/off (on=false) and pushes to hardware.
+// Fills the strip white (on=false) or black/off (on=true) and pushes to hardware.
+// Logic is inverted relative to the parameter because the strip wiring is active-LOW.
 void hal_led_set(bool on) {
-    fill_solid(leds, HAL_NUM_LEDS, on ? CRGB::White : CRGB::Black);
+    fill_solid(leds, HAL_NUM_LEDS, on ? CRGB::Black : CRGB::White);
     FastLED.show();
 }
 

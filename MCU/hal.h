@@ -18,7 +18,8 @@ void hal_tof_init();
 // or -1 if the sensor reports an out-of-range / error status.
 int16_t hal_tof_read_mm();
 
-// Sets the LED strip to full white (on=true) or off (on=false).
+// Sets the LED strip on (on=true) or off (on=false).
+// Polarity is inverted in the implementation to match active-LOW wiring.
 void hal_led_set(bool on);
 
 // Sends a null-terminated string over the SoftwareSerial UART to the Pi.

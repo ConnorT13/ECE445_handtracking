@@ -59,11 +59,19 @@ class HoverSelectUI:
 
         self.buttons = [
             Button("Toggle Overlay", x0, y0 + 0 * (bh + gap), bw, bh),
-            Button("Start Demo Mode", x0, y0 + 1 * (bh + gap), bw, bh),
-            Button("Reset / Clear", x0, y0 + 2 * (bh + gap), bw, bh),
+            Button("Reset / Clear", x0, y0 + 1 * (bh + gap), bw, bh),
         ]
 
         self._initialized_layout = True
+
+    def reset(self):
+        for btn in self.buttons:
+            btn.toggled = False
+        self.hovered_idx = None
+        self.hover_start_t = None
+        self.cursor_x = None
+        self.cursor_y = None
+        self.last_hand_seen_t = None
 
     def update_cursor_from_norm(self, tip_norm, frame_w: int, frame_h: int):
         """

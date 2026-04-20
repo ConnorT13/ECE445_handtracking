@@ -4,6 +4,11 @@ import os
 import cv2
 import numpy as np
 
+try:
+    import serial
+except ImportError:
+    serial = None
+
 from hand_tracking.UI_Cursor.hand_tracker import HandTracker
 from hand_tracking.UI_Cursor.user_interface import HoverSelectUI
 from hand_tracking.database.db_init import initialize_database
@@ -14,7 +19,67 @@ from hand_tracking.matching.match import find_best_database_matches
 WINDOW_TITLE = "Smart Mirror Live Match Demo"
 MATCH_BACKEND = "insightface"
 MATCH_INTERVAL_SECONDS = 1.5
+SCAN_TIMEOUT_SECONDS = 15.0
 TOP_K_MATCHES = 3
+UART_DEVICE = "/dev/serial0"
+UART_BAUDRATE = 9600
+UART_SETTLE_SECONDS = 0.1
+
+
+class UartBridge:
+    def __init__(self, device=UART_DEVICE, baudrate=UART_BAUDRATE):
+        self.device = device
+        self.baudrate = baudrate
+        self.ser = None
+        self.available = False
+        self._open()
+
+    def _open(self):
+        if serial is None:
+            print("WARNING: pyserial is not installed. UART bridge disabled.")
+            return
+
+        try:
+            self.ser = serial.Serial(self.device, baudrate=self.baudrate, timeout=0)
+        except serial.SerialException as exc:
+            print(f"WARNING: could not open {self.device} — {exc}")
+            print("UART bridge disabled. The demo will stay on the standby screen until UART is available.")
+            self.ser = None
+            return
+
+        time.sleep(UART_SETTLE_SECONDS)
+        self.available = True
+        print(f"[BRIDGE] Listening on {self.device} at {self.baudrate} baud")
+
+    def poll_lines(self):
+        if self.ser is None:
+            return []
+
+        lines = []
+        try:
+            while self.ser.in_waiting > 0:
+                line = self.ser.readline().decode("ascii", errors="replace").strip()
+                if line:
+                    lines.append(line)
+        except serial.SerialException as exc:
+            print(f"[BRIDGE] Serial error: {exc}")
+        return lines
+
+    def send(self, message):
+        if self.ser is None:
+            return
+
+        payload = f"{message}\n".encode("ascii")
+        try:
+            self.ser.write(payload)
+            print(f"[BRIDGE] Sent {message}")
+        except serial.SerialException as exc:
+            print(f"[BRIDGE] Serial write error: {exc}")
+
+    def close(self):
+        if self.ser is not None:
+            self.ser.close()
+            self.ser = None
 
 
 def configure_fullscreen_window():
@@ -165,7 +230,7 @@ def draw_match_panel(frame, demo_active, status_text, matches):
     )
 
     if not matches:
-        placeholder = "Hover over 'Start Demo Mode' to begin matching."
+        placeholder = "Waiting for presence detection."
         if demo_active:
             placeholder = "Waiting for a detectable face."
         cv2.putText(
@@ -348,6 +413,7 @@ def main():
 
     tracker = HandTracker(max_num_hands=1)
     ui = HoverSelectUI(dwell_seconds=1.5, smoothing_alpha=0.25, cursor_radius=10)
+    uart = UartBridge()
 
     try:
         embedder = create_embedder(MATCH_BACKEND)
@@ -362,9 +428,27 @@ def main():
     state = "idle"
 
     demo_active = False
+    overlay_visible = True
     last_match_t = 0.0
-    last_status_text = "Hover over Start Demo Mode to begin."
+    scan_started_t = None
+    match_message_sent = False
+    no_match_message_sent = False
+    last_status_text = "Waiting for presence detection."
     last_matches = []
+
+    def reset_session(status_text="Waiting for presence detection."):
+        nonlocal state, demo_active, last_match_t, scan_started_t
+        nonlocal match_message_sent, no_match_message_sent, last_status_text, last_matches
+
+        state = "idle"
+        demo_active = False
+        last_match_t = 0.0
+        scan_started_t = None
+        match_message_sent = False
+        no_match_message_sent = False
+        last_status_text = status_text
+        last_matches = []
+        ui.reset()
 
     try:
         while True:
@@ -376,13 +460,31 @@ def main():
             if key in (27, ord("q")):
                 break
 
+            for line in uart.poll_lines():
+                if line == "PRESENCE":
+                    print("[BRIDGE] Presence detected")
+                    state = "active"
+                    demo_active = True
+                    last_match_t = 0.0
+                    scan_started_t = time.time()
+                    match_message_sent = False
+                    no_match_message_sent = False
+                    last_status_text = "Presence detected. Looking for a face..."
+                    last_matches = []
+                    ui.reset()
+                elif line == "RESET":
+                    print("[BRIDGE] Reset received")
+                    reset_session("Reset complete. Waiting for presence detection.")
+                else:
+                    print(f"[BRIDGE] Unknown: {line}")
+
             if state == "idle":
                 h, w, _ = frame.shape
                 black = np.zeros((h, w, 3), dtype=np.uint8)
                 cv2.putText(
                     black,
-                    "Press Enter to begin",
-                    (w // 2 - 200, h // 2),
+                    "Waiting for presence detection",
+                    (w // 2 - 290, h // 2),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1.2,
                     (255, 255, 255),
@@ -390,8 +492,6 @@ def main():
                     cv2.LINE_AA,
                 )
                 cv2.imshow(WINDOW_TITLE, cv2.rotate(black, cv2.ROTATE_90_COUNTERCLOCKWISE))
-                if key == 13:  # Enter
-                    state = "active"
                 continue
 
             # --- active state ---
@@ -403,17 +503,10 @@ def main():
 
             events = ui.update_and_draw(frame)
             for event in events:
-                if event == "Selected: Start Demo Mode":
-                    demo_active = not demo_active
-                    if demo_active:
-                        last_status_text = "Demo started. Looking for a face..."
-                    else:
-                        last_status_text = "Demo stopped. Hover to start again."
-                        last_matches = []
+                if event == "Selected: Toggle Overlay":
+                    overlay_visible = not overlay_visible
                 elif event == "Selected: Reset / Clear":
-                    demo_active = False
-                    last_status_text = "Reset complete. Standing by."
-                    last_matches = []
+                    reset_session("Reset complete. Waiting for presence detection.")
 
             now = time.time()
             if demo_active and now - last_match_t >= MATCH_INTERVAL_SECONDS:
@@ -426,16 +519,32 @@ def main():
                     if matches:
                         last_matches = matches
                         last_status_text = "Latest face match results:"
+                        if not match_message_sent:
+                            uart.send("MATCH")
+                            match_message_sent = True
                     else:
                         last_status_text = "No face detected — holding last match."
                 except Exception as exc:
                     last_status_text = f"Matching paused: {exc}"
 
-            draw_match_panel(frame, demo_active, last_status_text, last_matches)
+            if (
+                demo_active
+                and scan_started_t is not None
+                and not match_message_sent
+                and not no_match_message_sent
+                and now - scan_started_t >= SCAN_TIMEOUT_SECONDS
+            ):
+                uart.send("NO_MATCH")
+                no_match_message_sent = True
+                last_status_text = "Scan timed out with no face match. Awaiting reset."
+
+            if overlay_visible:
+                draw_match_panel(frame, demo_active, last_status_text, last_matches)
 
             cv2.imshow(WINDOW_TITLE, cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE))
 
     finally:
+        uart.close()
         embedder.close()
         tracker.close()
         cap.release()

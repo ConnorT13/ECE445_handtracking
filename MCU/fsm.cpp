@@ -80,6 +80,7 @@ void fsm_init() {
     state = State::IDLE;
     stateEnteredAt = millis();
     lastTofAt = 0;
+    hal_led_set(false);
     Serial.println(F("FSM: init -> IDLE"));
 }
 

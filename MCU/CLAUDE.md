@@ -9,7 +9,8 @@
 ### FSM States
 - IDLE: poll ToF every 100ms, light off, wait for presence
 - SCANNING: light on, waiting for Pi UART response, 15s timeout
-- MATCH_DISPLAYED: light off, X-second display timer, then RESET
+- MATCH_PENDING: light off, 10s delay after receiving MATCH before turning light on
+- MATCH_DISPLAYED: light on, 10s display timer, then RESET
 
 ### UART Protocol
 MCU → Pi: "PRESENCE\n", "RESET\n"

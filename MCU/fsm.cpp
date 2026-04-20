@@ -2,16 +2,17 @@
 #include "hal.h"
 #include <Arduino.h>
 
-enum class State { IDLE, SCANNING, MATCH_DISPLAYED };
+enum class State { IDLE, SCANNING, MATCH_PENDING, MATCH_DISPLAYED };
 
 static State state;
 static uint32_t stateEnteredAt;  // millis() when the current state was entered
 
 // Transition helper: prints debug line and records entry time.
 static void enter(State next, const char* label) {
-    const char* from = (state == State::IDLE)            ? "IDLE"
-                     : (state == State::SCANNING)        ? "SCANNING"
-                                                         : "MATCH_DISPLAYED";
+    const char* from = (state == State::IDLE)             ? "IDLE"
+                     : (state == State::SCANNING)         ? "SCANNING"
+                     : (state == State::MATCH_PENDING)    ? "MATCH_PENDING"
+                                                          : "MATCH_DISPLAYED";
     Serial.print(F("FSM: "));
     Serial.print(from);
     Serial.print(F(" -> "));
@@ -56,11 +57,20 @@ static void tick_scanning() {
     if (!hal_uart_readline(buf, sizeof(buf))) return;
 
     if (strcmp(buf, "MATCH") == 0) {
-        enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
-        // Entry action
-        hal_led_set(false);
+        enter(State::MATCH_PENDING, "MATCH_PENDING");
+        // LED stays off — hal_led_set called after 10s delay in tick_match_pending
     } else if (strcmp(buf, "NO_MATCH") == 0) {
         leave_scanning_idle();
+    }
+}
+
+// ── MATCH_PENDING ─────────────────────────────────────────────────────────────
+
+// Waits 10s after receiving MATCH before turning the LED on, then enters MATCH_DISPLAYED.
+static void tick_match_pending() {
+    if (millis() - stateEnteredAt >= 10000UL) {
+        hal_led_set(false);  // turn strip on (inverted wiring)
+        enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
     }
 }
 
@@ -85,8 +95,9 @@ void fsm_init() {
 
 void fsm_tick() {
     switch (state) {
-        case State::IDLE:           tick_idle();           break;
-        case State::SCANNING:       tick_scanning();       break;
+        case State::IDLE:            tick_idle();            break;
+        case State::SCANNING:        tick_scanning();        break;
+        case State::MATCH_PENDING:   tick_match_pending();   break;
         case State::MATCH_DISPLAYED: tick_match_displayed(); break;
     }
 }

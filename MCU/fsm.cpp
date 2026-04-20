@@ -47,7 +47,7 @@ static void leave_scanning_idle() {
 
 static void tick_scanning() {
     // 15-second timeout
-    if (millis() - stateEnteredAt >= 15000UL) {
+    if (millis() - stateEnteredAt >= 150000UL) {
         leave_scanning_idle();
         return;
     }

@@ -17,6 +17,11 @@ MATCH_INTERVAL_SECONDS = 1.5
 TOP_K_MATCHES = 3
 
 
+def configure_fullscreen_window():
+    cv2.namedWindow(WINDOW_TITLE, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
+
 def wrap_text(text, max_chars):
     words = text.split()
     if not words:
@@ -325,6 +330,7 @@ def draw_match_panel(frame, demo_active, status_text, matches):
 
 def main():
     initialize_database()
+    configure_fullscreen_window()
 
     # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
 

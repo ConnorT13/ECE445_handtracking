@@ -19,6 +19,7 @@ except serial.SerialException as e:
     print("Check raspi-config: disable serial login shell, enable hardware serial port.")
     sys.exit(1)
 
+time.sleep(0.1)  # let port settle — prevents first byte being dropped on open
 print("[BRIDGE] Listening on /dev/serial0 at 9600 baud")
 
 while True:
@@ -26,7 +27,7 @@ while True:
         line = ser.readline().decode("ascii", errors="replace").strip()
     except serial.SerialException as e:
         print(f"[BRIDGE] Serial error: {e}")
-        break
+        continue  # transient error — stay alive so RESET can still arrive
 
     if not line:
         continue

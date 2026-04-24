@@ -144,7 +144,9 @@ def tof_reader_loop(distance_queue, stop_event):
                 break
             m = _TOF_LINE_RE.search(line)
             if m and int(m.group(1)) == 0:  # status=0 means valid reading
-                distance_queue.put(int(m.group(2)))
+                dist = int(m.group(2))
+                print(f"[ToF] D={dist}mm")
+                distance_queue.put(dist)
     finally:
         proc.terminate()
         try:

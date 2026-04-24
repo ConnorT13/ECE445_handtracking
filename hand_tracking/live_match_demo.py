@@ -4,6 +4,7 @@
 import os
 import queue
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -138,6 +139,7 @@ def tof_reader_loop(distance_queue, stop_event):
         print(f"[ToF] Failed to start sensor binary: {exc}")
         return
 
+    last_print_time = 0.0
     try:
         for line in proc.stdout:
             if stop_event.is_set():
@@ -145,12 +147,20 @@ def tof_reader_loop(distance_queue, stop_event):
             m = _TOF_LINE_RE.search(line)
             if m and int(m.group(1)) == 0:  # status=0 means valid reading
                 dist = int(m.group(2))
-                print(f"[ToF] D={dist}mm")
+                now = time.time()
+                if now - last_print_time >= 1.0:
+                    print(f"[ToF] D={dist}mm")
+                    last_print_time = now
                 distance_queue.put(dist)
     finally:
-        proc.terminate()
+        # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
+        # leaving the sensor in a clean state for the next run.
         try:
-            proc.wait(timeout=2)
+            proc.send_signal(signal.SIGINT)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
 

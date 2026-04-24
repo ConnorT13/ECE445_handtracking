@@ -25,16 +25,26 @@ static void enter(State next, const char* label) {
 
 static uint32_t lastTofAt = 0;
 
+static void enter_scanning_from_idle(bool send_presence) {
+    enter(State::SCANNING, "SCANNING");
+    hal_led_set(true);
+    if (send_presence) hal_uart_send("PRESENCE\n");
+}
+
 static void tick_idle() {
     uint32_t now = millis();
     if (now - lastTofAt < 100) return;
     lastTofAt = now;
 
     if (hal_tof_read_mm() < 500) {
-        enter(State::SCANNING, "SCANNING");
-        // Entry actions
-        hal_led_set(true);
-        hal_uart_send("PRESENCE\n");
+        enter_scanning_from_idle(true);  // MCU detected — notify Pi
+        return;
+    }
+
+    // Pi's own ToF may have triggered first and sent us PRESENCE.
+    char buf[32];
+    if (hal_uart_readline(buf, sizeof(buf)) && strcmp(buf, "PRESENCE") == 0) {
+        enter_scanning_from_idle(false);  // Pi already knows — just start SCANNING
     }
 }
 

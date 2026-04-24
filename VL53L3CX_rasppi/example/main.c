@@ -155,7 +155,7 @@ void RangingLoop(void)
   /* Main ranging loop — exits cleanly on Ctrl+C */
   while (keep_running) {
     status = VL53LX_GetMeasurementDataReady(Dev, &NewDataReady);
-    usleep(250000); /* 250 ms polling period */
+    usleep(50000); /* 50 ms polling period — 20 Hz */
 
     if ((!status) && (NewDataReady != 0)) {
       status = VL53LX_GetMultiRangingData(Dev, pMultiRangingData);
@@ -174,6 +174,7 @@ void RangingLoop(void)
                pMultiRangingData->RangeData[j].AmbientRateRtnMegaCps / 65536.0);
       }
       printf("\n");
+      fflush(stdout);
 
       if (status == 0) {
         status = VL53LX_ClearInterruptAndStartMeasurement(Dev);

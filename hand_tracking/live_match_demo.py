@@ -28,7 +28,7 @@ from hand_tracking.matching.match import find_best_database_matches
 
 
 # Path to the compiled VL53L3CX binary (run `make example` in VL53L3CX_rasppi/).
-TOF_BINARY_PATH = "/home/krish/ECE445_handtracking/VL53L3CX_rasppi/bin/main"
+TOF_BINARY_PATH = "/home/ece445/Desktop/ECE445_handtracking/VL53L3CX_rasppi/bin/main"
 # Distance in mm below which the Pi-side ToF sensor counts as a person present.
 TOF_PRESENCE_THRESHOLD_MM = 500
 

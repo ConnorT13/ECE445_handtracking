@@ -14,7 +14,7 @@
 
 ### UART Protocol
 MCU → Pi: "PRESENCE\n", "RESET\n"
-Pi → MCU: "MATCH\n", "NO_MATCH\n"
+Pi → MCU: "MATCH\n", "NO_MATCH\n", "PRESENCE\n" (when Pi's VL53L3CX ToF triggers first)
 
 ### HAL abstraction
 All hardware access goes through hal.h / hal.cpp so Arduino → STM32

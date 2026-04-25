@@ -1,7 +1,11 @@
-# Trigger: UART PRESENCE from Arduino FSM (replaces Enter-key trigger)
+# Trigger: UART PRESENCE from Arduino FSM *or* Pi-side VL53L3CX ToF sensor
 # Protocol: receives PRESENCE -> runs match -> sends MATCH -> waits for RESET
+#           Pi ToF trigger also sends PRESENCE to MCU so FSM progresses normally
 import os
 import queue
+import re
+import signal
+import subprocess
 import threading
 import time
 
@@ -23,6 +27,11 @@ from hand_tracking.database.db_operations import (
 from hand_tracking.matching.embedder import create_embedder
 from hand_tracking.matching.match import find_best_database_matches
 
+
+# Path to the compiled VL53L3CX binary (run `make example` in VL53L3CX_rasppi/).
+TOF_BINARY_PATH = "/home/ece445/Desktop/ECE445_handtracking/VL53L3CX_rasppi/bin/main"
+# Distance in mm below which the Pi-side ToF sensor counts as a person present.
+TOF_PRESENCE_THRESHOLD_MM = 500
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
@@ -109,6 +118,61 @@ def drain_uart_queue(message_queue):
         except queue.Empty:
             break
     return messages
+
+
+_TOF_LINE_RE = re.compile(r"status=(\d+),\s*D=\s*(\d+)mm")
+
+
+def tof_reader_loop(distance_queue, stop_event):
+    """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue."""
+    try:
+        proc = subprocess.Popen(
+            [TOF_BINARY_PATH],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except FileNotFoundError:
+        print(f"[ToF] Binary not found at {TOF_BINARY_PATH}. Run `make example` in VL53L3CX_rasppi/.")
+        return
+    except Exception as exc:
+        print(f"[ToF] Failed to start sensor binary: {exc}")
+        return
+
+    last_print_time = 0.0
+    try:
+        for line in proc.stdout:
+            if stop_event.is_set():
+                break
+            m = _TOF_LINE_RE.search(line)
+            if m and int(m.group(1)) == 0:  # status=0 means valid reading
+                dist = int(m.group(2))
+                now = time.time()
+                if now - last_print_time >= 1.0:
+                    print(f"[ToF] D={dist}mm")
+                    last_print_time = now
+                distance_queue.put(dist)
+    finally:
+        # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
+        # leaving the sensor in a clean state for the next run.
+        try:
+            proc.send_signal(signal.SIGINT)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def drain_tof_queue(distance_queue):
+    distances = []
+    while True:
+        try:
+            distances.append(distance_queue.get_nowait())
+        except queue.Empty:
+            break
+    return distances
 
 
 def open_camera():
@@ -900,7 +964,14 @@ def main():
     tracker = HandTracker(max_num_hands=1)
     careers = get_available_careers()
     uart_queue = queue.Queue()
+    tof_queue = queue.Queue()
+    tof_stop_event = threading.Event()
     ser = None
+
+    tof_thread = threading.Thread(
+        target=tof_reader_loop, args=(tof_queue, tof_stop_event), daemon=True
+    )
+    tof_thread.start()
 
     try:
         ser = open_uart_serial()
@@ -927,6 +998,7 @@ def main():
     try:
         while True:
             drain_uart_queue(uart_queue)
+            drain_tof_queue(tof_queue)
 
             while True:
                 cv2.imshow(WINDOW_TITLE, wait_frame)
@@ -940,6 +1012,16 @@ def main():
                         saw_presence = True
                     elif message == "RESET":
                         continue
+
+                # Pi-side ToF trigger: any valid reading below threshold counts as presence.
+                if not saw_presence:
+                    distances = drain_tof_queue(tof_queue)
+                    if any(d < TOF_PRESENCE_THRESHOLD_MM for d in distances):
+                        saw_presence = True
+                        # Notify MCU so its FSM also progresses to SCANNING.
+                        if ser is not None and ser.is_open:
+                            ser.write(b"PRESENCE\n")
+                            ser.flush()
 
                 if saw_presence:
                     break
@@ -1097,6 +1179,7 @@ def main():
                 cap.release()
                 drain_uart_queue(uart_queue)
     finally:
+        tof_stop_event.set()
         embedder.close()
         tracker.close()
         if ser is not None and ser.is_open:

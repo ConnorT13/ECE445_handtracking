@@ -8,6 +8,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections import namedtuple
 
 import cv2
 import numpy as np
@@ -32,6 +33,12 @@ from hand_tracking.matching.match import find_best_database_matches
 TOF_BINARY_PATH = "/home/ece445/Desktop/ECE445_handtracking/VL53L3CX_rasppi/bin/main"
 # Distance in mm below which the Pi-side ToF sensor counts as a person present.
 TOF_PRESENCE_THRESHOLD_MM = 500
+# Minimum Signal (Mcps) a valid reading must have — filters noise and tiny objects.
+TOF_MIN_SIGNAL_MCPS = 0.05
+# Maximum sigma (mm) for a reading to be considered reliable even at status=0.
+TOF_MAX_SIGMA_MM = 50.0
+
+TofReading = namedtuple("TofReading", ["distance", "signal", "sigma_mm"])
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
@@ -120,7 +127,9 @@ def drain_uart_queue(message_queue):
     return messages
 
 
-_TOF_LINE_RE = re.compile(r"status=(\d+),\s*D=\s*(\d+)mm")
+_TOF_LINE_RE = re.compile(
+    r"status=(\d+),\s*D=\s*(\d+)mm,\s*S=\s*(\d+)mm,\s*Signal=\s*([\d.]+)\s*Mcps"
+)
 
 
 def tof_reader_loop(distance_queue, stop_event):
@@ -147,11 +156,13 @@ def tof_reader_loop(distance_queue, stop_event):
             m = _TOF_LINE_RE.search(line)
             if m and int(m.group(1)) == 0:  # status=0 means valid reading
                 dist = int(m.group(2))
+                sigma_mm = int(m.group(3)) / 65536.0
+                sig = float(m.group(4))
                 now = time.time()
                 if now - last_print_time >= 1.0:
-                    print(f"[ToF] D={dist}mm")
+                    print(f"[ToF] D={dist}mm Signal={sig:.2f}Mcps sigma={sigma_mm:.1f}mm")
                     last_print_time = now
-                distance_queue.put(dist)
+                distance_queue.put(TofReading(distance=dist, signal=sig, sigma_mm=sigma_mm))
     finally:
         # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
         # leaving the sensor in a clean state for the next run.
@@ -166,13 +177,22 @@ def tof_reader_loop(distance_queue, stop_event):
 
 
 def drain_tof_queue(distance_queue):
-    distances = []
+    readings = []
     while True:
         try:
-            distances.append(distance_queue.get_nowait())
+            readings.append(distance_queue.get_nowait())
         except queue.Empty:
             break
-    return distances
+    return readings
+
+
+def _is_human_presence(readings):
+    return any(
+        r.distance < TOF_PRESENCE_THRESHOLD_MM
+        and r.signal >= TOF_MIN_SIGNAL_MCPS
+        and r.sigma_mm < TOF_MAX_SIGMA_MM
+        for r in readings
+    )
 
 
 def open_camera():
@@ -1013,10 +1033,9 @@ def main():
                     elif message == "RESET":
                         continue
 
-                # Pi-side ToF trigger: any valid reading below threshold counts as presence.
+                # Pi-side ToF trigger: valid reading below threshold with human-plausible signal/sigma.
                 if not saw_presence:
-                    distances = drain_tof_queue(tof_queue)
-                    if any(d < TOF_PRESENCE_THRESHOLD_MM for d in distances):
+                    if _is_human_presence(drain_tof_queue(tof_queue)):
                         saw_presence = True
                         # Notify MCU so its FSM also progresses to SCANNING.
                         if ser is not None and ser.is_open:

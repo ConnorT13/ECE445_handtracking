@@ -1,6 +1,7 @@
 # Trigger: UART PRESENCE from Arduino FSM *or* Pi-side VL53L3CX ToF sensor
 # Protocol: receives PRESENCE -> runs match -> sends MATCH -> waits for RESET
 #           Pi ToF trigger also sends PRESENCE to MCU so FSM progresses normally
+import logging
 import os
 import queue
 import re
@@ -8,7 +9,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 
 import cv2
 import numpy as np
@@ -109,6 +110,9 @@ def open_uart_serial():
 
 
 def uart_reader_loop(ser, message_queue):
+    if ser is None:
+        logging.warning("[UART] ser is None — uart_reader_loop exiting immediately.")
+        return
     while True:
         try:
             line = ser.readline().decode("ascii", errors="replace").strip()
@@ -136,47 +140,58 @@ _TOF_LINE_RE = re.compile(
 
 
 def tof_reader_loop(distance_queue, stop_event):
-    """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue."""
-    try:
-        proc = subprocess.Popen(
-            [TOF_BINARY_PATH],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-    except FileNotFoundError:
-        print(f"[ToF] Binary not found at {TOF_BINARY_PATH}. Run `make example` in VL53L3CX_rasppi/.")
-        return
-    except Exception as exc:
-        print(f"[ToF] Failed to start sensor binary: {exc}")
-        return
+    """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue.
+    Restarts automatically on crash with exponential backoff (1s–30s)."""
+    backoff = 1.0
 
-    last_print_time = 0.0
-    try:
-        for line in proc.stdout:
-            if stop_event.is_set():
-                break
-            m = _TOF_LINE_RE.search(line)
-            if m and int(m.group(1)) == 0:  # status=0 means valid reading
-                dist = int(m.group(2))
-                sigma_mm = int(m.group(3)) / 65536.0
-                sig = float(m.group(4))
-                now = time.time()
-                if now - last_print_time >= 1.0:
-                    print(f"[ToF] D={dist}mm Signal={sig:.2f}Mcps sigma={sigma_mm:.1f}mm")
-                    last_print_time = now
-                distance_queue.put(TofReading(distance=dist, signal=sig, sigma_mm=sigma_mm))
-    finally:
-        # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
-        # leaving the sensor in a clean state for the next run.
+    while not stop_event.is_set():
         try:
-            proc.send_signal(signal.SIGINT)
-        except OSError:
-            pass
+            proc = subprocess.Popen(
+                [TOF_BINARY_PATH],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        except FileNotFoundError:
+            logging.error("[ToF] Binary not found at %s. Run `make example` in VL53L3CX_rasppi/.", TOF_BINARY_PATH)
+            return
+        except Exception as exc:
+            logging.error("[ToF] Failed to start sensor binary: %s", exc)
+            return
+
+        last_print_time = 0.0
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            for line in proc.stdout:
+                if stop_event.is_set():
+                    break
+                m = _TOF_LINE_RE.search(line)
+                if m and int(m.group(1)) == 0:  # status=0 means valid reading
+                    dist = int(m.group(2))
+                    sigma_mm = int(m.group(3)) / 65536.0
+                    sig = float(m.group(4))
+                    now = time.time()
+                    if now - last_print_time >= 1.0:
+                        logging.info("[ToF] D=%dmm Signal=%.2fMcps sigma=%.1fmm", dist, sig, sigma_mm)
+                        last_print_time = now
+                    distance_queue.put(TofReading(distance=dist, signal=sig, sigma_mm=sigma_mm))
+        finally:
+            # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
+            # leaving the sensor in a clean state for the next run.
+            try:
+                proc.send_signal(signal.SIGINT)
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        if stop_event.is_set():
+            break
+
+        logging.warning("[ToF] Process exited with code %s. Restarting in %.0fs.", proc.returncode, backoff)
+        stop_event.wait(timeout=backoff)
+        backoff = min(backoff * 2, 30.0)
 
 
 def drain_tof_queue(distance_queue):
@@ -612,7 +627,7 @@ def draw_labeled_text_section(
     )
 
 
-_image_cache = {}
+_image_cache = OrderedDict()
 
 
 def draw_profile_image(frame, image_path, x, y, width, height):
@@ -635,6 +650,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
         raw = cv2.imread(image_path)
         if raw is None:
             _image_cache[image_path] = None
+            if len(_image_cache) > 20:
+                _image_cache.popitem(last=False)
         else:
             image_h, image_w, _ = raw.shape
             scale = min(width / image_w, height / image_h)
@@ -644,6 +661,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
             offset_x = (width - resized.shape[1]) // 2
             canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
             _image_cache[image_path] = canvas
+            if len(_image_cache) > 20:
+                _image_cache.popitem(last=False)
 
     cached = _image_cache.get(image_path)
     if cached is None:
@@ -1013,6 +1032,11 @@ def main():
     embed_stop_event = threading.Event()
     ser = None
 
+    logging.basicConfig(
+        level=logging.INFO,
+        # format="%(asctime)s %(levelname)s %(message)s",
+        force=True  # overrides any existing handler configuration
+    )
     tof_thread = threading.Thread(
         target=tof_reader_loop, args=(tof_queue, tof_stop_event), daemon=True
     )
@@ -1020,8 +1044,9 @@ def main():
 
     try:
         ser = open_uart_serial()
-        uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
-        uart_thread.start()
+        if ser is not None and ser.is_open:
+            uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
+            uart_thread.start()
         embedder = create_embedder(MATCH_BACKEND)
         embed_thread = threading.Thread(
             target=embedding_worker,

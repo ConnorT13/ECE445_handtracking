@@ -110,6 +110,9 @@ def open_uart_serial():
 
 
 def uart_reader_loop(ser, message_queue):
+    if ser is None:
+        logging.warning("[UART] ser is None — uart_reader_loop exiting immediately.")
+        return
     while True:
         try:
             line = ser.readline().decode("ascii", errors="replace").strip()
@@ -1041,8 +1044,9 @@ def main():
 
     try:
         ser = open_uart_serial()
-        uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
-        uart_thread.start()
+        if ser is not None and ser.is_open:
+            uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
+            uart_thread.start()
         embedder = create_embedder(MATCH_BACKEND)
         embed_thread = threading.Thread(
             target=embedding_worker,

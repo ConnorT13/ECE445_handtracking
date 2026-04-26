@@ -1,6 +1,7 @@
 # Trigger: UART PRESENCE from Arduino FSM *or* Pi-side VL53L3CX ToF sensor
 # Protocol: receives PRESENCE -> runs match -> sends MATCH -> waits for RESET
 #           Pi ToF trigger also sends PRESENCE to MCU so FSM progresses normally
+import logging
 import os
 import queue
 import re
@@ -8,7 +9,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 
 import cv2
 import numpy as np
@@ -22,6 +23,7 @@ from hand_tracking.UI_Cursor.hand_tracker import HandTracker
 from hand_tracking.UI_Cursor.user_interface import HoverSelectUI
 from hand_tracking.database.db_init import initialize_database
 from hand_tracking.database.db_operations import (
+    close_connection,
     get_all_professionals,
     get_professionals_by_quantum_area,
 )
@@ -39,6 +41,8 @@ TOF_MIN_SIGNAL_MCPS = 0.05
 TOF_MAX_SIGMA_MM = 50.0
 
 TofReading = namedtuple("TofReading", ["distance", "signal", "sigma_mm"])
+EmbedJob = namedtuple("EmbedJob", ["frame_region", "allowed_professional_ids"])
+EmbedResult = namedtuple("EmbedResult", ["matches", "error"])
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
@@ -106,6 +110,9 @@ def open_uart_serial():
 
 
 def uart_reader_loop(ser, message_queue):
+    if ser is None:
+        logging.warning("[UART] ser is None — uart_reader_loop exiting immediately.")
+        return
     while True:
         try:
             line = ser.readline().decode("ascii", errors="replace").strip()
@@ -133,47 +140,58 @@ _TOF_LINE_RE = re.compile(
 
 
 def tof_reader_loop(distance_queue, stop_event):
-    """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue."""
-    try:
-        proc = subprocess.Popen(
-            [TOF_BINARY_PATH],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-    except FileNotFoundError:
-        print(f"[ToF] Binary not found at {TOF_BINARY_PATH}. Run `make example` in VL53L3CX_rasppi/.")
-        return
-    except Exception as exc:
-        print(f"[ToF] Failed to start sensor binary: {exc}")
-        return
+    """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue.
+    Restarts automatically on crash with exponential backoff (1s–30s)."""
+    backoff = 1.0
 
-    last_print_time = 0.0
-    try:
-        for line in proc.stdout:
-            if stop_event.is_set():
-                break
-            m = _TOF_LINE_RE.search(line)
-            if m and int(m.group(1)) == 0:  # status=0 means valid reading
-                dist = int(m.group(2))
-                sigma_mm = int(m.group(3)) / 65536.0
-                sig = float(m.group(4))
-                now = time.time()
-                if now - last_print_time >= 1.0:
-                    print(f"[ToF] D={dist}mm Signal={sig:.2f}Mcps sigma={sigma_mm:.1f}mm")
-                    last_print_time = now
-                distance_queue.put(TofReading(distance=dist, signal=sig, sigma_mm=sigma_mm))
-    finally:
-        # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
-        # leaving the sensor in a clean state for the next run.
+    while not stop_event.is_set():
         try:
-            proc.send_signal(signal.SIGINT)
-        except OSError:
-            pass
+            proc = subprocess.Popen(
+                [TOF_BINARY_PATH],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        except FileNotFoundError:
+            logging.error("[ToF] Binary not found at %s. Run `make example` in VL53L3CX_rasppi/.", TOF_BINARY_PATH)
+            return
+        except Exception as exc:
+            logging.error("[ToF] Failed to start sensor binary: %s", exc)
+            return
+
+        last_print_time = 0.0
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            for line in proc.stdout:
+                if stop_event.is_set():
+                    break
+                m = _TOF_LINE_RE.search(line)
+                if m and int(m.group(1)) == 0:  # status=0 means valid reading
+                    dist = int(m.group(2))
+                    sigma_mm = int(m.group(3)) / 65536.0
+                    sig = float(m.group(4))
+                    now = time.time()
+                    if now - last_print_time >= 1.0:
+                        logging.info("[ToF] D=%dmm Signal=%.2fMcps sigma=%.1fmm", dist, sig, sigma_mm)
+                        last_print_time = now
+                    distance_queue.put(TofReading(distance=dist, signal=sig, sigma_mm=sigma_mm))
+        finally:
+            # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
+            # leaving the sensor in a clean state for the next run.
+            try:
+                proc.send_signal(signal.SIGINT)
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        if stop_event.is_set():
+            break
+
+        logging.warning("[ToF] Process exited with code %s. Restarting in %.0fs.", proc.returncode, backoff)
+        stop_event.wait(timeout=backoff)
+        backoff = min(backoff * 2, 30.0)
 
 
 def drain_tof_queue(distance_queue):
@@ -609,7 +627,7 @@ def draw_labeled_text_section(
     )
 
 
-_image_cache = {}
+_image_cache = OrderedDict()
 
 
 def draw_profile_image(frame, image_path, x, y, width, height):
@@ -632,6 +650,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
         raw = cv2.imread(image_path)
         if raw is None:
             _image_cache[image_path] = None
+            if len(_image_cache) > 20:
+                _image_cache.popitem(last=False)
         else:
             image_h, image_w, _ = raw.shape
             scale = min(width / image_w, height / image_h)
@@ -641,6 +661,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
             offset_x = (width - resized.shape[1]) // 2
             canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
             _image_cache[image_path] = canvas
+            if len(_image_cache) > 20:
+                _image_cache.popitem(last=False)
 
     cached = _image_cache.get(image_path)
     if cached is None:
@@ -970,6 +992,25 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
     return frame
 
 
+def embedding_worker(embedder, input_q, output_q, stop_event):
+    while not stop_event.is_set():
+        try:
+            job = input_q.get(timeout=0.1)
+        except queue.Empty:
+            continue
+        try:
+            result = embedder.embed_bgr_image(job.frame_region)
+            matches = find_best_database_matches(
+                result.embedding,
+                result.model_name,
+                top_k=TOP_K_MATCHES,
+                allowed_professional_ids=job.allowed_professional_ids,
+            )
+            output_q.put(EmbedResult(matches=matches, error=None))
+        except Exception as exc:
+            output_q.put(EmbedResult(matches=None, error=str(exc)))
+
+
 def main():
     initialize_database()
     visible_ratios = compute_visible_ratios()
@@ -986,8 +1027,16 @@ def main():
     uart_queue = queue.Queue()
     tof_queue = queue.Queue()
     tof_stop_event = threading.Event()
+    embed_input_q = queue.Queue(maxsize=1)
+    embed_output_q = queue.Queue()
+    embed_stop_event = threading.Event()
     ser = None
 
+    logging.basicConfig(
+        level=logging.INFO,
+        # format="%(asctime)s %(levelname)s %(message)s",
+        force=True  # overrides any existing handler configuration
+    )
     tof_thread = threading.Thread(
         target=tof_reader_loop, args=(tof_queue, tof_stop_event), daemon=True
     )
@@ -995,9 +1044,16 @@ def main():
 
     try:
         ser = open_uart_serial()
-        uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
-        uart_thread.start()
+        if ser is not None and ser.is_open:
+            uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
+            uart_thread.start()
         embedder = create_embedder(MATCH_BACKEND)
+        embed_thread = threading.Thread(
+            target=embedding_worker,
+            args=(embedder, embed_input_q, embed_output_q, embed_stop_event),
+            daemon=True,
+        )
+        embed_thread.start()
     except Exception as exc:
         if serial is not None and isinstance(exc, serial.SerialException):
             tracker.close()
@@ -1086,13 +1142,14 @@ def main():
                     if reset_requested:
                         break
 
-                    frame = cv2.flip(frame, 1)
-                    display_frame = prepare_camera_frame(frame, visible_ratios)
-                    h, w, _ = display_frame.shape
+                    if state in (STATE_SELECT_CAREER, STATE_MATCHING):
+                        frame = cv2.flip(frame, 1)
+                        display_frame = prepare_camera_frame(frame, visible_ratios)
+                        h, w, _ = display_frame.shape
 
                     if state == STATE_INTRO:
                         seconds_remaining = max(0.0, INTRO_DURATION_SECONDS - (time.time() - intro_start_t))
-                        intro_frame = draw_intro_screen(display_frame.shape, seconds_remaining)
+                        intro_frame = draw_intro_screen((DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3), seconds_remaining)
                         cv2.imshow(WINDOW_TITLE, rotate_output_frame(intro_frame))
                         key = cv2.waitKey(1) & 0xFF
                         if key in (27, ord("q")):
@@ -1103,7 +1160,7 @@ def main():
 
                     if state == STATE_PROFILE:
                         profile_frame = draw_profile_screen(
-                            display_frame.shape,
+                            (DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3),
                             matched_professional,
                             selected_career,
                             matched_test_name,
@@ -1155,34 +1212,46 @@ def main():
                         min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
                         guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
                         draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
+
+                        # Submit a new embedding job every MATCH_INTERVAL_SECONDS.
+                        # put_nowait drops the frame if the worker is still busy (queue full).
                         now = time.time()
                         if now - last_match_t >= MATCH_INTERVAL_SECONDS:
                             last_match_t = now
+                            match_region = extract_match_region(display_frame, guide_geometry)
                             try:
-                                match_region = extract_match_region(display_frame, guide_geometry)
-                                result = embedder.embed_bgr_image(match_region)
-                                matches = find_best_database_matches(
-                                    result.embedding,
-                                    result.model_name,
-                                    top_k=TOP_K_MATCHES,
-                                    allowed_professional_ids=allowed_professional_ids,
+                                embed_input_q.put_nowait(
+                                    EmbedJob(
+                                        frame_region=match_region.copy(),
+                                        allowed_professional_ids=allowed_professional_ids,
+                                    )
                                 )
-                                if matches:
-                                    source_professional = matches[0]["professional"]
-                                    matched_professional = source_professional
-                                    matched_test_name = source_professional[1]
-                                    state = STATE_PROFILE
-                                    if not match_sent:
+                            except queue.Full:
+                                pass
+
+                        # Collect any result the worker has ready this frame.
+                        try:
+                            embed_result = embed_output_q.get_nowait()
+                            if embed_result.error is not None:
+                                matching_status = f"Looking for a face... ({embed_result.error})"
+                            elif embed_result.matches:
+                                source_professional = embed_result.matches[0]["professional"]
+                                matched_professional = source_professional
+                                matched_test_name = source_professional[1]
+                                state = STATE_PROFILE
+                                if not match_sent:
+                                    if ser is not None and ser.is_open:
                                         ser.write(b"MATCH\n")
                                         ser.flush()
-                                        match_sent = True
-                                else:
-                                    matching_status = (
-                                        f"No enrolled face matches are available for {selected_career}. "
-                                        "Choose a career that has an enrolled profile."
-                                    )
-                            except Exception as exc:
-                                matching_status = f"Looking for a face... ({exc})"
+                                    match_sent = True
+                            else:
+                                matching_status = (
+                                    f"No enrolled face matches are available for {selected_career}. "
+                                    "Choose a career that has an enrolled profile."
+                                )
+                        except queue.Empty:
+                            pass
+
                         draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
 
                     cv2.imshow(WINDOW_TITLE, rotate_output_frame(display_frame))
@@ -1199,10 +1268,12 @@ def main():
                 drain_uart_queue(uart_queue)
     finally:
         tof_stop_event.set()
+        embed_stop_event.set()
         embedder.close()
         tracker.close()
         if ser is not None and ser.is_open:
             ser.close()
+        close_connection()
         cv2.destroyAllWindows()
 
 

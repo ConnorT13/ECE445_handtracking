@@ -1,6 +1,34 @@
 import json
 import sqlite3
+import time
 from .db_init import get_database_path
+
+_FACE_EMBEDDINGS_CACHE_TTL = 30.0
+_face_embeddings_cache: dict = {}  # model_name -> (fetched_at, rows)
+
+_conn: sqlite3.Connection | None = None
+
+
+def get_connection() -> sqlite3.Connection:
+    global _conn
+    if _conn is None:
+        _conn = sqlite3.connect(
+            get_database_path(),
+            check_same_thread=False,
+        )
+        _conn.execute("PRAGMA journal_mode=WAL")
+    return _conn
+
+
+def close_connection():
+    global _conn
+    if _conn is not None:
+        _conn.close()
+        _conn = None
+
+
+def _invalidate_face_embeddings_cache():
+    _face_embeddings_cache.clear()
 
 
 def add_professional(
@@ -18,8 +46,7 @@ def add_professional(
     Inserts a professional profile into the database.
     Returns the new professional ID.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -35,7 +62,7 @@ def add_professional(
 
     professional_id = cursor.lastrowid
     connection.commit()
-    connection.close()
+    cursor.close()
 
     return professional_id
 
@@ -44,8 +71,7 @@ def add_tag_to_professional(professional_id, tag):
     """
     Adds a tag to a professional profile.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -54,15 +80,14 @@ def add_tag_to_professional(professional_id, tag):
     """, (professional_id, tag))
 
     connection.commit()
-    connection.close()
+    cursor.close()
 
 
 def get_all_professionals():
     """
     Returns all professional profiles.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -73,7 +98,7 @@ def get_all_professionals():
     """)
 
     rows = cursor.fetchall()
-    connection.close()
+    cursor.close()
 
     return rows
 
@@ -82,8 +107,7 @@ def get_professional_by_id(professional_id):
     """
     Returns one professional profile by ID.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -94,17 +118,41 @@ def get_professional_by_id(professional_id):
     """, (professional_id,))
 
     row = cursor.fetchone()
-    connection.close()
+    cursor.close()
 
     return row
+
+
+def get_professionals_by_ids(ids: list) -> dict:
+    """
+    Returns a dict mapping id -> professional row for all requested IDs,
+    fetched in a single query.
+    """
+    if not ids:
+        return {}
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    placeholders = ",".join("?" * len(ids))
+    cursor.execute(f"""
+        SELECT id, name, title, organization, quantum_area,
+               short_bio, long_bio, image_path, fun_fact, video_url, created_at
+        FROM professionals
+        WHERE id IN ({placeholders})
+    """, ids)
+
+    rows = cursor.fetchall()
+    cursor.close()
+
+    return {row[0]: row for row in rows}
 
 
 def get_professional_by_name(name):
     """
     Returns one professional profile by name.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -115,7 +163,7 @@ def get_professional_by_name(name):
     """, (name,))
 
     row = cursor.fetchone()
-    connection.close()
+    cursor.close()
 
     return row
 
@@ -124,8 +172,7 @@ def get_tags_for_professional(professional_id):
     """
     Returns all tags for a given professional.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -136,7 +183,7 @@ def get_tags_for_professional(professional_id):
     """, (professional_id,))
 
     rows = cursor.fetchall()
-    connection.close()
+    cursor.close()
 
     return [row[0] for row in rows]
 
@@ -145,8 +192,7 @@ def get_professionals_by_tag(tag):
     """
     Returns professionals that have a specific tag.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -159,7 +205,7 @@ def get_professionals_by_tag(tag):
     """, (tag,))
 
     rows = cursor.fetchall()
-    connection.close()
+    cursor.close()
 
     return rows
 
@@ -168,8 +214,7 @@ def get_professionals_by_quantum_area(quantum_area):
     """
     Returns professionals for a given quantum area.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -181,7 +226,7 @@ def get_professionals_by_quantum_area(quantum_area):
     """, (quantum_area,))
 
     rows = cursor.fetchall()
-    connection.close()
+    cursor.close()
 
     return rows
 
@@ -190,8 +235,7 @@ def log_interaction(event_type, matched_professional_id=None, notes=None):
     """
     Logs an interaction or match event.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -200,15 +244,14 @@ def log_interaction(event_type, matched_professional_id=None, notes=None):
     """, (event_type, matched_professional_id, notes))
 
     connection.commit()
-    connection.close()
+    cursor.close()
 
 
 def get_recent_logs(limit=10):
     """
     Returns the most recent interaction logs.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -219,7 +262,7 @@ def get_recent_logs(limit=10):
     """, (limit,))
 
     rows = cursor.fetchall()
-    connection.close()
+    cursor.close()
 
     return rows
 
@@ -228,8 +271,7 @@ def upsert_face_embedding(professional_id, model_name, embedding):
     """
     Inserts or updates a face embedding for a professional/model pair.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     embedding_json = json.dumps(embedding)
@@ -242,15 +284,15 @@ def upsert_face_embedding(professional_id, model_name, embedding):
     """, (professional_id, model_name, embedding_json))
 
     connection.commit()
-    connection.close()
+    cursor.close()
+    _invalidate_face_embeddings_cache()
 
 
 def get_face_embedding(professional_id, model_name):
     """
     Returns a decoded embedding list for a professional/model pair.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -260,7 +302,7 @@ def get_face_embedding(professional_id, model_name):
     """, (professional_id, model_name))
 
     row = cursor.fetchone()
-    connection.close()
+    cursor.close()
 
     if row is None:
         return None
@@ -272,8 +314,12 @@ def get_all_face_embeddings(model_name):
     """
     Returns all embeddings for a given model name.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    now = time.time()
+    cached = _face_embeddings_cache.get(model_name)
+    if cached is not None and now - cached[0] < _FACE_EMBEDDINGS_CACHE_TTL:
+        return cached[1]
+
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -284,17 +330,18 @@ def get_all_face_embeddings(model_name):
     """, (model_name,))
 
     rows = cursor.fetchall()
-    connection.close()
+    cursor.close()
 
-    return [(professional_id, json.loads(embedding_json)) for professional_id, embedding_json in rows]
+    result = [(professional_id, json.loads(embedding_json)) for professional_id, embedding_json in rows]
+    _face_embeddings_cache[model_name] = (now, result)
+    return result
 
 
 def set_demo_profile_link(source_professional_id, target_professional_id):
     """
     Points a source professional to a target profile for demo display.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -305,15 +352,14 @@ def set_demo_profile_link(source_professional_id, target_professional_id):
     """, (source_professional_id, target_professional_id))
 
     connection.commit()
-    connection.close()
+    cursor.close()
 
 
 def get_demo_profile_target(source_professional_id):
     """
     Returns the linked target professional row if one exists, otherwise None.
     """
-    db_path = get_database_path()
-    connection = sqlite3.connect(db_path)
+    connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -325,6 +371,6 @@ def get_demo_profile_target(source_professional_id):
     """, (source_professional_id,))
 
     row = cursor.fetchone()
-    connection.close()
+    cursor.close()
 
     return row

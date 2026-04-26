@@ -1,10 +1,32 @@
+import logging
 import os
+import socket
+import time
+import urllib.error
 import urllib.request
 import cv2
 import mediapipe as mp
 
 TASK_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 TASK_MODEL_PATH = "hand_landmarker.task"
+
+
+def download_with_retry(url, dest, retries=3, timeout=30):
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = response.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            return
+        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+            logging.warning("Download attempt %d/%d failed for %s: %s", attempt, retries, url, exc)
+            if attempt < retries:
+                time.sleep(2)
+    raise RuntimeError(f"Failed to download {url} after {retries} attempts.")
 
 
 class HandTracker:
@@ -53,8 +75,8 @@ class HandTracker:
             from mediapipe.tasks.python import vision
 
             if not os.path.exists(TASK_MODEL_PATH):
-                print("Downloading MediaPipe hand model (one-time)...")
-                urllib.request.urlretrieve(TASK_MODEL_URL, TASK_MODEL_PATH)
+                logging.info("Downloading MediaPipe hand model (one-time)...")
+                download_with_retry(TASK_MODEL_URL, TASK_MODEL_PATH)
 
             base_options = python.BaseOptions(model_asset_path=TASK_MODEL_PATH)
             options = vision.HandLandmarkerOptions(

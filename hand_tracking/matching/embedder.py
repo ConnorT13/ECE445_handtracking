@@ -1,5 +1,9 @@
 from dataclasses import dataclass
+import logging
 import os
+import socket
+import time
+import urllib.error
 import urllib.request
 
 import cv2
@@ -25,6 +29,24 @@ FACE_LANDMARKER_TASK_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
     "face_landmarker/float16/latest/face_landmarker.task"
 )
+
+
+def download_with_retry(url, dest, retries=3, timeout=30):
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = response.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            return
+        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+            logging.warning("Download attempt %d/%d failed for %s: %s", attempt, retries, url, exc)
+            if attempt < retries:
+                time.sleep(2)
+    raise RuntimeError(f"Failed to download {url} after {retries} attempts.")
 
 
 @dataclass
@@ -91,8 +113,8 @@ class MediaPipeFaceEmbedder:
 
     def __init__(self, max_num_faces=1):
         if not os.path.exists(FACE_LANDMARKER_TASK_PATH):
-            print("Downloading MediaPipe face landmarker model (one-time)...")
-            urllib.request.urlretrieve(FACE_LANDMARKER_TASK_URL, FACE_LANDMARKER_TASK_PATH)
+            logging.info("Downloading MediaPipe face landmarker model (one-time)...")
+            download_with_retry(FACE_LANDMARKER_TASK_URL, FACE_LANDMARKER_TASK_PATH)
 
         base_options = python.BaseOptions(model_asset_path=FACE_LANDMARKER_TASK_PATH)
         options = vision.FaceLandmarkerOptions(

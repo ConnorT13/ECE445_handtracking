@@ -1,6 +1,14 @@
 import json
 import sqlite3
+import time
 from .db_init import get_database_path
+
+_FACE_EMBEDDINGS_CACHE_TTL = 30.0
+_face_embeddings_cache: dict = {}  # model_name -> (fetched_at, rows)
+
+
+def _invalidate_face_embeddings_cache():
+    _face_embeddings_cache.clear()
 
 
 def add_professional(
@@ -243,6 +251,7 @@ def upsert_face_embedding(professional_id, model_name, embedding):
 
     connection.commit()
     connection.close()
+    _invalidate_face_embeddings_cache()
 
 
 def get_face_embedding(professional_id, model_name):
@@ -272,6 +281,11 @@ def get_all_face_embeddings(model_name):
     """
     Returns all embeddings for a given model name.
     """
+    now = time.time()
+    cached = _face_embeddings_cache.get(model_name)
+    if cached is not None and now - cached[0] < _FACE_EMBEDDINGS_CACHE_TTL:
+        return cached[1]
+
     db_path = get_database_path()
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
@@ -286,7 +300,9 @@ def get_all_face_embeddings(model_name):
     rows = cursor.fetchall()
     connection.close()
 
-    return [(professional_id, json.loads(embedding_json)) for professional_id, embedding_json in rows]
+    result = [(professional_id, json.loads(embedding_json)) for professional_id, embedding_json in rows]
+    _face_embeddings_cache[model_name] = (now, result)
+    return result
 
 
 def set_demo_profile_link(source_professional_id, target_professional_id):

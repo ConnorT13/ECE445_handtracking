@@ -1116,13 +1116,14 @@ def main():
                     if reset_requested:
                         break
 
-                    frame = cv2.flip(frame, 1)
-                    display_frame = prepare_camera_frame(frame, visible_ratios)
-                    h, w, _ = display_frame.shape
+                    if state in (STATE_SELECT_CAREER, STATE_MATCHING):
+                        frame = cv2.flip(frame, 1)
+                        display_frame = prepare_camera_frame(frame, visible_ratios)
+                        h, w, _ = display_frame.shape
 
                     if state == STATE_INTRO:
                         seconds_remaining = max(0.0, INTRO_DURATION_SECONDS - (time.time() - intro_start_t))
-                        intro_frame = draw_intro_screen(display_frame.shape, seconds_remaining)
+                        intro_frame = draw_intro_screen((DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3), seconds_remaining)
                         cv2.imshow(WINDOW_TITLE, rotate_output_frame(intro_frame))
                         key = cv2.waitKey(1) & 0xFF
                         if key in (27, ord("q")):
@@ -1133,7 +1134,7 @@ def main():
 
                     if state == STATE_PROFILE:
                         profile_frame = draw_profile_screen(
-                            display_frame.shape,
+                            (DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3),
                             matched_professional,
                             selected_career,
                             matched_test_name,

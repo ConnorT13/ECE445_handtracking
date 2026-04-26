@@ -22,6 +22,7 @@ from hand_tracking.UI_Cursor.hand_tracker import HandTracker
 from hand_tracking.UI_Cursor.user_interface import HoverSelectUI
 from hand_tracking.database.db_init import initialize_database
 from hand_tracking.database.db_operations import (
+    close_connection,
     get_all_professionals,
     get_professionals_by_quantum_area,
 )
@@ -1247,6 +1248,7 @@ def main():
         tracker.close()
         if ser is not None and ser.is_open:
             ser.close()
+        close_connection()
         cv2.destroyAllWindows()
 
 

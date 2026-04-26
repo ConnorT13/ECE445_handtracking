@@ -1029,6 +1029,11 @@ def main():
     embed_stop_event = threading.Event()
     ser = None
 
+    logging.basicConfig(
+        level=logging.INFO,
+        # format="%(asctime)s %(levelname)s %(message)s",
+        force=True  # overrides any existing handler configuration
+    )
     tof_thread = threading.Thread(
         target=tof_reader_loop, args=(tof_queue, tof_stop_event), daemon=True
     )

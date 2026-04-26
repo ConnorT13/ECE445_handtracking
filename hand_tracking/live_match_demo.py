@@ -39,6 +39,8 @@ TOF_MIN_SIGNAL_MCPS = 0.05
 TOF_MAX_SIGMA_MM = 50.0
 
 TofReading = namedtuple("TofReading", ["distance", "signal", "sigma_mm"])
+EmbedJob = namedtuple("EmbedJob", ["frame_region", "allowed_professional_ids"])
+EmbedResult = namedtuple("EmbedResult", ["matches", "error"])
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
@@ -970,6 +972,25 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
     return frame
 
 
+def embedding_worker(embedder, input_q, output_q, stop_event):
+    while not stop_event.is_set():
+        try:
+            job = input_q.get(timeout=0.1)
+        except queue.Empty:
+            continue
+        try:
+            result = embedder.embed_bgr_image(job.frame_region)
+            matches = find_best_database_matches(
+                result.embedding,
+                result.model_name,
+                top_k=TOP_K_MATCHES,
+                allowed_professional_ids=job.allowed_professional_ids,
+            )
+            output_q.put(EmbedResult(matches=matches, error=None))
+        except Exception as exc:
+            output_q.put(EmbedResult(matches=None, error=str(exc)))
+
+
 def main():
     initialize_database()
     visible_ratios = compute_visible_ratios()
@@ -986,6 +1007,9 @@ def main():
     uart_queue = queue.Queue()
     tof_queue = queue.Queue()
     tof_stop_event = threading.Event()
+    embed_input_q = queue.Queue(maxsize=1)
+    embed_output_q = queue.Queue()
+    embed_stop_event = threading.Event()
     ser = None
 
     tof_thread = threading.Thread(
@@ -998,6 +1022,12 @@ def main():
         uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
         uart_thread.start()
         embedder = create_embedder(MATCH_BACKEND)
+        embed_thread = threading.Thread(
+            target=embedding_worker,
+            args=(embedder, embed_input_q, embed_output_q, embed_stop_event),
+            daemon=True,
+        )
+        embed_thread.start()
     except Exception as exc:
         if serial is not None and isinstance(exc, serial.SerialException):
             tracker.close()
@@ -1155,34 +1185,46 @@ def main():
                         min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
                         guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
                         draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
+
+                        # Submit a new embedding job every MATCH_INTERVAL_SECONDS.
+                        # put_nowait drops the frame if the worker is still busy (queue full).
                         now = time.time()
                         if now - last_match_t >= MATCH_INTERVAL_SECONDS:
                             last_match_t = now
+                            match_region = extract_match_region(display_frame, guide_geometry)
                             try:
-                                match_region = extract_match_region(display_frame, guide_geometry)
-                                result = embedder.embed_bgr_image(match_region)
-                                matches = find_best_database_matches(
-                                    result.embedding,
-                                    result.model_name,
-                                    top_k=TOP_K_MATCHES,
-                                    allowed_professional_ids=allowed_professional_ids,
+                                embed_input_q.put_nowait(
+                                    EmbedJob(
+                                        frame_region=match_region.copy(),
+                                        allowed_professional_ids=allowed_professional_ids,
+                                    )
                                 )
-                                if matches:
-                                    source_professional = matches[0]["professional"]
-                                    matched_professional = source_professional
-                                    matched_test_name = source_professional[1]
-                                    state = STATE_PROFILE
-                                    if not match_sent:
+                            except queue.Full:
+                                pass
+
+                        # Collect any result the worker has ready this frame.
+                        try:
+                            embed_result = embed_output_q.get_nowait()
+                            if embed_result.error is not None:
+                                matching_status = f"Looking for a face... ({embed_result.error})"
+                            elif embed_result.matches:
+                                source_professional = embed_result.matches[0]["professional"]
+                                matched_professional = source_professional
+                                matched_test_name = source_professional[1]
+                                state = STATE_PROFILE
+                                if not match_sent:
+                                    if ser is not None and ser.is_open:
                                         ser.write(b"MATCH\n")
                                         ser.flush()
-                                        match_sent = True
-                                else:
-                                    matching_status = (
-                                        f"No enrolled face matches are available for {selected_career}. "
-                                        "Choose a career that has an enrolled profile."
-                                    )
-                            except Exception as exc:
-                                matching_status = f"Looking for a face... ({exc})"
+                                    match_sent = True
+                            else:
+                                matching_status = (
+                                    f"No enrolled face matches are available for {selected_career}. "
+                                    "Choose a career that has an enrolled profile."
+                                )
+                        except queue.Empty:
+                            pass
+
                         draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
 
                     cv2.imshow(WINDOW_TITLE, rotate_output_frame(display_frame))
@@ -1199,6 +1241,7 @@ def main():
                 drain_uart_queue(uart_queue)
     finally:
         tof_stop_event.set()
+        embed_stop_event.set()
         embedder.close()
         tracker.close()
         if ser is not None and ser.is_open:

@@ -21,6 +21,14 @@ MATCH_BACKEND = "insightface"
 MATCH_INTERVAL_SECONDS = 1.5
 TOP_K_MATCHES = 3
 INTRO_DURATION_SECONDS = 7.0
+PRESENCE_CHECK_INTERVAL_SECONDS = 0.20
+PRESENCE_CONFIRMATION_SECONDS = 0.40
+PRESENCE_LOSS_TIMEOUT_SECONDS = 2.00
+WAKE_DISTANCE_CM = 85.0
+SLEEP_DISTANCE_CM = 100.0
+REFERENCE_DISTANCE_CM = 60.0
+REFERENCE_FACE_WIDTH_PX = 220.0
+SHOW_PRESENCE_DEBUG_TEXT = True
 CAMERA_ROTATION = None
 WINDOW_OUTPUT_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 OLD_SCREEN_HEIGHT_CM = 71.0
@@ -64,6 +72,54 @@ STATE_WAIT_FOR_START = "wait_for_start"
 STATE_SELECT_CAREER = "select_career"
 STATE_MATCHING = "matching"
 STATE_PROFILE = "profile"
+
+
+def estimate_face_distance_cm(face_width_px):
+    if face_width_px <= 0:
+        return None
+    return (REFERENCE_DISTANCE_CM * REFERENCE_FACE_WIDTH_PX) / float(face_width_px)
+
+
+def measure_presence_distance_cm(embedder, frame):
+    face_bbox = embedder.get_primary_face_bbox(frame)
+    if face_bbox is None:
+        return None, None
+
+    x1, _, x2, _ = face_bbox
+    face_width_px = max(0, x2 - x1)
+    if face_width_px <= 0:
+        return None, face_bbox
+
+    return estimate_face_distance_cm(face_width_px), face_bbox
+
+
+def draw_presence_debug_text(frame, distance_cm, is_in_range):
+    if not SHOW_PRESENCE_DEBUG_TEXT:
+        return frame
+
+    debug_frame = frame.copy()
+    if distance_cm is None:
+        text = "Stand in front of the mirror to begin"
+        color = (160, 160, 160)
+    else:
+        state_text = "IN RANGE" if is_in_range else "TOO FAR"
+        text = (
+            f"Face distance: {distance_cm:.0f} cm | Wake threshold: {WAKE_DISTANCE_CM:.0f} cm | "
+            f"{state_text}"
+        )
+        color = (0, 220, 0) if is_in_range else (0, 180, 255)
+
+    cv2.putText(
+        debug_frame,
+        text,
+        (24, frame.shape[0] - 28),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        color,
+        1,
+        cv2.LINE_AA,
+    )
+    return debug_frame
 
 
 def compute_visible_ratios(
@@ -685,8 +741,9 @@ def draw_intro_screen(frame_shape, seconds_remaining):
     return frame
 
 
-def draw_wait_for_start_screen(frame_shape):
-    return np.zeros(frame_shape, dtype=np.uint8)
+def draw_wait_for_start_screen(frame_shape, distance_cm=None, is_in_range=False):
+    frame = np.zeros(frame_shape, dtype=np.uint8)
+    return draw_presence_debug_text(frame, distance_cm, is_in_range)
 
 
 def draw_profile_screen(frame_shape, professional, selected_career, matched_test_name):
@@ -838,11 +895,11 @@ def main():
     cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.resizeWindow(WINDOW_TITLE, window_w, window_h)
 
-    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
-    
-     # wsl videocapture
-    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+
+    # wsl videocapture
+    # cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    # cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
@@ -881,6 +938,35 @@ def main():
     matched_test_name = None
     last_match_t = 0.0
     allowed_professional_ids = []
+    last_presence_check_t = 0.0
+    last_measured_distance_cm = None
+    presence_in_range_since_t = None
+    last_in_range_t = None
+
+    def reset_to_wait_for_start():
+        nonlocal state
+        nonlocal intro_start_t
+        nonlocal selected_career
+        nonlocal matching_status
+        nonlocal matched_professional
+        nonlocal matched_test_name
+        nonlocal last_match_t
+        nonlocal allowed_professional_ids
+        nonlocal presence_in_range_since_t
+        nonlocal last_in_range_t
+
+        state = STATE_WAIT_FOR_START
+        intro_start_t = None
+        selected_career = None
+        matching_status = "Waiting to start matching."
+        matched_professional = None
+        matched_test_name = None
+        last_match_t = 0.0
+        allowed_professional_ids = []
+        presence_in_range_since_t = None
+        last_in_range_t = None
+        ui.set_buttons(careers, "Choose a quantum career to begin")
+        ui.set_layout_config(ui_layout_config)
 
     try:
         while True:
@@ -891,16 +977,47 @@ def main():
             frame = cv2.flip(frame, 1)
             display_frame = prepare_camera_frame(frame, visible_ratios)
             h, w, _ = display_frame.shape
+            now = time.time()
+
+            if now - last_presence_check_t >= PRESENCE_CHECK_INTERVAL_SECONDS:
+                last_presence_check_t = now
+                last_measured_distance_cm, _ = measure_presence_distance_cm(embedder, display_frame)
+
+            wake_in_range = (
+                last_measured_distance_cm is not None
+                and last_measured_distance_cm <= WAKE_DISTANCE_CM
+            )
+            keep_awake_in_range = (
+                last_measured_distance_cm is not None
+                and last_measured_distance_cm <= SLEEP_DISTANCE_CM
+            )
 
             if state == STATE_WAIT_FOR_START:
-                wait_frame = draw_wait_for_start_screen(display_frame.shape)
+                if wake_in_range:
+                    if presence_in_range_since_t is None:
+                        presence_in_range_since_t = now
+                    elif now - presence_in_range_since_t >= PRESENCE_CONFIRMATION_SECONDS:
+                        intro_start_t = time.time()
+                        state = STATE_INTRO
+                        last_in_range_t = now
+                else:
+                    presence_in_range_since_t = None
+
+                wait_frame = draw_wait_for_start_screen(
+                    display_frame.shape,
+                    distance_cm=last_measured_distance_cm,
+                    is_in_range=wake_in_range,
+                )
                 cv2.imshow(WINDOW_TITLE, rotate_output_frame(wait_frame))
                 key = cv2.waitKey(1) & 0xFF
                 if key in (27, ord("q")):
                     break
-                if key == 13:
-                    intro_start_t = time.time()
-                    state = STATE_INTRO
+                continue
+
+            if keep_awake_in_range:
+                last_in_range_t = now
+            elif last_in_range_t is not None and now - last_in_range_t >= PRESENCE_LOSS_TIMEOUT_SECONDS:
+                reset_to_wait_for_start()
                 continue
 
             if state == STATE_INTRO:

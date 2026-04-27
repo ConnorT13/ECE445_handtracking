@@ -166,24 +166,43 @@ def get_professionals_by_tag(tag):
 
 def get_professionals_by_quantum_area(quantum_area):
     """
-    Returns professionals for a given quantum area.
+    Returns professionals for a given quantum area (primary column or profile_tags).
     """
     db_path = get_database_path()
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT id, name, title, organization, quantum_area,
+        SELECT DISTINCT id, name, title, organization, quantum_area,
                short_bio, long_bio, image_path, fun_fact, video_url, created_at
         FROM professionals
         WHERE quantum_area = ?
+           OR id IN (SELECT professional_id FROM profile_tags WHERE tag = ?)
         ORDER BY name ASC
-    """, (quantum_area,))
+    """, (quantum_area, quantum_area))
 
     rows = cursor.fetchall()
     connection.close()
 
     return rows
+
+
+def get_all_career_areas():
+    """
+    Returns all unique career areas from both quantum_area column and profile_tags.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT DISTINCT quantum_area FROM professionals WHERE quantum_area IS NOT NULL")
+    areas = {row[0] for row in cursor.fetchall()}
+
+    cursor.execute("SELECT DISTINCT tag FROM profile_tags")
+    areas |= {row[0] for row in cursor.fetchall()}
+
+    connection.close()
+    return areas
 
 
 def log_interaction(event_type, matched_professional_id=None, notes=None):

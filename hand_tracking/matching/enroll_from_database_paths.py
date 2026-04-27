@@ -1,7 +1,16 @@
 import os
+import sys
+
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from hand_tracking.database.db_init import initialize_database
-from hand_tracking.database.db_operations import get_all_professionals, upsert_face_embedding
+from hand_tracking.database.db_operations import (
+    get_all_professionals,
+    update_professional_image_path,
+    upsert_face_embedding,
+)
+from hand_tracking.database.path_utils import normalize_image_path_for_storage, resolve_image_path
 from hand_tracking.matching.embedder import create_embedder
 
 
@@ -21,15 +30,21 @@ def main():
         for professional in professionals:
             professional_id = professional[0]
             name = professional[1]
-            image_path = professional[7]
+            stored_image_path = professional[7]
+            resolved_image_path = resolve_image_path(stored_image_path)
 
-            if not image_path or not os.path.exists(image_path):
-                print(f"Skipping {name}: missing image path '{image_path}'")
+            if resolved_image_path is None:
+                print(f"Skipping {name}: missing image path '{stored_image_path}'")
                 skipped_count += 1
                 continue
 
+            normalized_path = normalize_image_path_for_storage(resolved_image_path)
+            if normalized_path != stored_image_path:
+                update_professional_image_path(professional_id, normalized_path)
+                print(f"Updated {name} image path -> {normalized_path}")
+
             try:
-                result = embedder.embed_image_file(image_path)
+                result = embedder.embed_image_file(resolved_image_path)
                 upsert_face_embedding(professional_id, result.model_name, result.embedding)
                 print(f"Enrolled {name}")
                 enrolled_count += 1

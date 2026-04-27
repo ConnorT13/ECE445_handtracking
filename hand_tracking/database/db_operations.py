@@ -264,6 +264,24 @@ def upsert_face_embedding(professional_id, model_name, embedding):
     connection.close()
 
 
+def update_professional_image_path(professional_id, image_path):
+    """
+    Updates the stored image path for a professional.
+    """
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE professionals
+        SET image_path = ?
+        WHERE id = ?
+    """, (image_path, professional_id))
+
+    connection.commit()
+    connection.close()
+
+
 def get_face_embedding(professional_id, model_name):
     """
     Returns a decoded embedding list for a professional/model pair.

@@ -1,5 +1,11 @@
 import os
 import sqlite3
+import sys
+
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from hand_tracking.database.path_utils import resolve_image_path
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "mirror.db")
 
@@ -74,6 +80,18 @@ def main():
     print(f"  Without embeddings  : {total_without}")
     if total_without > 0:
         print("  *** Some professionals have no face embedding and cannot be matched. ***")
+
+    print("\n── IMAGE PATH CHECK ──")
+    cur.execute("SELECT id, name, image_path FROM professionals ORDER BY id ASC")
+    missing_count = 0
+    for professional_id, name, image_path in cur.fetchall():
+        resolved = resolve_image_path(image_path)
+        if resolved is None:
+            missing_count += 1
+            print(f"  MISSING id={professional_id} {name}: {image_path!r}")
+
+    if missing_count == 0:
+        print("  All professional image paths resolved on this machine.")
 
     print("\n" + "=" * 60)
     con.close()

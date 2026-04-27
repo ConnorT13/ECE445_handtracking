@@ -2,15 +2,21 @@
 // To restore real sensor: replace hal_tof_init() and hal_tof_read_mm() implementations only.
 #include "hal.h"
 #include <SoftwareSerial.h>
+#include <FastLED.h>
+
+static CRGB leds[HAL_NUM_LEDS];
 
 // SoftwareSerial for Pi link: RX=10, TX=11 (keeps pins 0/1 free for USB uploads)
 static SoftwareSerial piSerial(10, 11);
 
-// Configures the presence-button pin as input with internal pull-up.
-// Also starts SoftwareSerial here — only one HAL init entry point exists.
+// Configures the presence-button pin, starts SoftwareSerial, and initializes
+// the WS2812B strip. Only one HAL init entry point exists so all setup lives here.
 void hal_tof_init() {
     pinMode(HAL_PRESENCE_BTN_PIN, INPUT_PULLUP);
     piSerial.begin(9600);
+    FastLED.addLeds<WS2812B, HAL_LED_PIN, GRB>(leds, HAL_NUM_LEDS);
+    FastLED.setBrightness(30);
+    hal_led_set(false);
 }
 
 // Returns 200 mm (presence) when button is pressed, 2000 mm (empty) when released.
@@ -19,9 +25,11 @@ int16_t hal_tof_read_mm() {
     return digitalRead(HAL_PRESENCE_BTN_PIN) == LOW ? 200 : 2000;
 }
 
-// Sets HAL_LED_PIN output level. Active HIGH — on=true drives the pin HIGH.
+// Fills the strip white (on=false) or black/off (on=true) and pushes to hardware.
+// Logic is inverted relative to the parameter because the strip wiring is active-LOW.
 void hal_led_set(bool on) {
-    digitalWrite(HAL_LED_PIN, on ? HIGH : LOW);
+    fill_solid(leds, HAL_NUM_LEDS, on ? CRGB::Black : CRGB::White);
+    FastLED.show();
 }
 
 // Writes msg over SoftwareSerial to the Pi. Caller is responsible for

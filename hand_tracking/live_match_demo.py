@@ -1,20 +1,49 @@
+# Trigger: UART PRESENCE from Arduino FSM *or* Pi-side VL53L3CX ToF sensor
+# Protocol: receives PRESENCE -> runs match -> sends MATCH -> waits for RESET
+#           Pi ToF trigger also sends PRESENCE to MCU so FSM progresses normally
+import logging
 import os
+import queue
+import re
+import signal
+import subprocess
+import threading
 import time
+from collections import OrderedDict, namedtuple
 
 import cv2
 import numpy as np
+
+try:
+    import serial
+except ImportError:
+    serial = None
 
 from hand_tracking.UI_Cursor.hand_tracker import HandTracker
 from hand_tracking.UI_Cursor.user_interface import HoverSelectUI
 from hand_tracking.database.db_init import initialize_database
 from hand_tracking.database.db_operations import (
     get_all_career_areas,
+    close_connection,
     get_all_professionals,
     get_professionals_by_quantum_area,
 )
 from hand_tracking.matching.embedder import create_embedder
 from hand_tracking.matching.match import find_best_database_matches
 
+
+# Path to the compiled VL53L3CX binary (run `make example` in VL53L3CX_rasppi/).
+TOF_BINARY_PATH = "/home/ece445/Desktop/ECE445_handtracking/VL53L3CX_rasppi/bin/main"
+# Distance in mm below which the Pi-side ToF sensor counts as a person present.
+TOF_PRESENCE_THRESHOLD_MM = 500
+# Minimum Signal (Mcps) a valid reading must have — filters noise and tiny objects.
+TOF_MIN_SIGNAL_MCPS = 0.05
+# Maximum sigma (mm) for a reading to be considered reliable even at status=0.
+TOF_MAX_SIGMA_MM = 50.0
+
+TofReading = namedtuple("TofReading", ["distance", "signal", "sigma_mm"])
+EmbedJob = namedtuple("EmbedJob", ["frame_region", "allowed_professional_ids"])
+EmbedResult = namedtuple("EmbedResult", ["matches", "error"])
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
@@ -64,6 +93,138 @@ STATE_WAIT_FOR_START = "wait_for_start"
 STATE_SELECT_CAREER = "select_career"
 STATE_MATCHING = "matching"
 STATE_PROFILE = "profile"
+
+
+def open_uart_serial():
+    if serial is None:
+        raise RuntimeError("pyserial is not installed. Run: pip3 install pyserial")
+
+    try:
+        ser = serial.Serial("/dev/serial0", baudrate=9600, timeout=1)
+    except serial.SerialException as exc:
+        print(f"ERROR: could not open /dev/serial0 — {exc}")
+        print("Check raspi-config: disable serial login shell, enable hardware serial port.")
+        raise
+
+    ser.dtr = False
+    time.sleep(0.1)
+    return ser
+
+
+def uart_reader_loop(ser, message_queue):
+    if ser is None:
+        logging.warning("[UART] ser is None — uart_reader_loop exiting immediately.")
+        return
+    while True:
+        try:
+            line = ser.readline().decode("ascii", errors="replace").strip()
+        except serial.SerialException as exc:
+            print(f"[UART] Serial error: {exc}")
+            continue
+
+        if line:
+            message_queue.put(line)
+
+
+def drain_uart_queue(message_queue):
+    messages = []
+    while True:
+        try:
+            messages.append(message_queue.get_nowait())
+        except queue.Empty:
+            break
+    return messages
+
+
+_TOF_LINE_RE = re.compile(
+    r"status=(\d+),\s*D=\s*(\d+)mm,\s*S=\s*(\d+)mm,\s*Signal=\s*([\d.]+)\s*Mcps"
+)
+
+
+def tof_reader_loop(distance_queue, stop_event):
+    """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue.
+    Restarts automatically on crash with exponential backoff (1s–30s)."""
+    backoff = 1.0
+
+    while not stop_event.is_set():
+        try:
+            proc = subprocess.Popen(
+                [TOF_BINARY_PATH],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        except FileNotFoundError:
+            logging.error("[ToF] Binary not found at %s. Run `make example` in VL53L3CX_rasppi/.", TOF_BINARY_PATH)
+            return
+        except Exception as exc:
+            logging.error("[ToF] Failed to start sensor binary: %s", exc)
+            return
+
+        last_print_time = 0.0
+        try:
+            for line in proc.stdout:
+                if stop_event.is_set():
+                    break
+                m = _TOF_LINE_RE.search(line)
+                if m and int(m.group(1)) == 0:  # status=0 means valid reading
+                    dist = int(m.group(2))
+                    sigma_mm = int(m.group(3)) / 65536.0
+                    sig = float(m.group(4))
+                    now = time.time()
+                    if now - last_print_time >= 1.0:
+                        logging.info("[ToF] D=%dmm Signal=%.2fMcps sigma=%.1fmm", dist, sig, sigma_mm)
+                        last_print_time = now
+                    distance_queue.put(TofReading(distance=dist, signal=sig, sigma_mm=sigma_mm))
+        finally:
+            # Send SIGINT so main.c runs VL53LX_StopMeasurement before exiting,
+            # leaving the sensor in a clean state for the next run.
+            try:
+                proc.send_signal(signal.SIGINT)
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        if stop_event.is_set():
+            break
+
+        logging.warning("[ToF] Process exited with code %s. Restarting in %.0fs.", proc.returncode, backoff)
+        stop_event.wait(timeout=backoff)
+        backoff = min(backoff * 2, 30.0)
+
+
+def drain_tof_queue(distance_queue):
+    readings = []
+    while True:
+        try:
+            readings.append(distance_queue.get_nowait())
+        except queue.Empty:
+            break
+    return readings
+
+
+def _is_human_presence(readings):
+    return any(
+        r.distance < TOF_PRESENCE_THRESHOLD_MM
+        and r.signal >= TOF_MIN_SIGNAL_MCPS
+        and r.sigma_mm < TOF_MAX_SIGMA_MM
+        for r in readings
+    )
+
+
+def open_camera():
+    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+
+    # wsl videocapture
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    return cap
 
 
 def compute_visible_ratios(
@@ -468,7 +629,7 @@ def draw_labeled_text_section(
     )
 
 
-_image_cache = {}
+_image_cache = OrderedDict()
 
 
 def draw_profile_image(frame, image_path, x, y, width, height):
@@ -491,6 +652,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
         raw = cv2.imread(image_path)
         if raw is None:
             _image_cache[image_path] = None
+            if len(_image_cache) > 20:
+                _image_cache.popitem(last=False)
         else:
             image_h, image_w, _ = raw.shape
             scale = min(width / image_w, height / image_h)
@@ -500,6 +663,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
             offset_x = (width - resized.shape[1]) // 2
             canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
             _image_cache[image_path] = canvas
+            if len(_image_cache) > 20:
+                _image_cache.popitem(last=False)
 
     cached = _image_cache.get(image_path)
     if cached is None:
@@ -829,6 +994,25 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
     return frame
 
 
+def embedding_worker(embedder, input_q, output_q, stop_event):
+    while not stop_event.is_set():
+        try:
+            job = input_q.get(timeout=0.1)
+        except queue.Empty:
+            continue
+        try:
+            result = embedder.embed_bgr_image(job.frame_region)
+            matches = find_best_database_matches(
+                result.embedding,
+                result.model_name,
+                top_k=TOP_K_MATCHES,
+                allowed_professional_ids=job.allowed_professional_ids,
+            )
+            output_q.put(EmbedResult(matches=matches, error=None))
+        except Exception as exc:
+            output_q.put(EmbedResult(matches=None, error=str(exc)))
+
+
 def main():
     initialize_database()
     visible_ratios = compute_visible_ratios()
@@ -837,174 +1021,266 @@ def main():
     cv2.namedWindow(WINDOW_TITLE, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.resizeWindow(WINDOW_TITLE, window_w, window_h)
-
-    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
-    
-     # wsl videocapture
-    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-
-
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-
-    if not cap.isOpened():
-        print("ERROR: Could not open camera.")
-        return
+    wait_frame_shape = (DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3)
+    wait_frame = rotate_output_frame(draw_wait_for_start_screen(wait_frame_shape))
 
     tracker = HandTracker(max_num_hands=1)
     careers = get_available_careers()
-    ui = HoverSelectUI(
-        dwell_seconds=1.5,
-        smoothing_alpha=0.25,
-        cursor_radius=10,
-        button_labels=careers,
-        header_text="Choose a quantum career to begin",
-        layout_config=ui_layout_config,
+    uart_queue = queue.Queue()
+    tof_queue = queue.Queue()
+    tof_stop_event = threading.Event()
+    embed_input_q = queue.Queue(maxsize=1)
+    embed_output_q = queue.Queue()
+    embed_stop_event = threading.Event()
+    ser = None
+
+    logging.basicConfig(
+        level=logging.INFO,
+        # format="%(asctime)s %(levelname)s %(message)s",
+        force=True  # overrides any existing handler configuration
     )
+    tof_thread = threading.Thread(
+        target=tof_reader_loop, args=(tof_queue, tof_stop_event), daemon=True
+    )
+    tof_thread.start()
 
     try:
+        ser = open_uart_serial()
+        if ser is not None and ser.is_open:
+            uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
+            uart_thread.start()
         embedder = create_embedder(MATCH_BACKEND)
+        embed_thread = threading.Thread(
+            target=embedding_worker,
+            args=(embedder, embed_input_q, embed_output_q, embed_stop_event),
+            daemon=True,
+        )
+        embed_thread.start()
     except Exception as exc:
+        if serial is not None and isinstance(exc, serial.SerialException):
+            tracker.close()
+            cv2.destroyAllWindows()
+            return
+        if isinstance(exc, RuntimeError):
+            print(f"ERROR: {exc}")
+            tracker.close()
+            cv2.destroyAllWindows()
+            return
         print(f"ERROR: Could not initialize embedding backend: {exc}")
         tracker.close()
-        cap.release()
+        if ser is not None and ser.is_open:
+            ser.close()
         cv2.destroyAllWindows()
         return
 
-    state = STATE_WAIT_FOR_START
-    intro_start_t = None
-    selected_career = None
-    matching_status = "Waiting to start matching."
-    matched_professional = None
-    matched_test_name = None
-    last_match_t = 0.0
-    allowed_professional_ids = []
-
     try:
         while True:
-            ok, frame = cap.read()
-            if not ok:
-                continue
+            drain_uart_queue(uart_queue)
+            drain_tof_queue(tof_queue)
 
-            frame = cv2.flip(frame, 1)
-            display_frame = prepare_camera_frame(frame, visible_ratios)
-            h, w, _ = display_frame.shape
-
-            if state == STATE_WAIT_FOR_START:
-                wait_frame = draw_wait_for_start_screen(display_frame.shape)
-                cv2.imshow(WINDOW_TITLE, rotate_output_frame(wait_frame))
+            while True:
+                cv2.imshow(WINDOW_TITLE, wait_frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (27, ord("q")):
+                    return
+
+                saw_presence = False
+                for message in drain_uart_queue(uart_queue):
+                    if message == "PRESENCE":
+                        saw_presence = True
+                    elif message == "RESET":
+                        continue
+
+                # Pi-side ToF trigger: valid reading below threshold with human-plausible signal/sigma.
+                if not saw_presence:
+                    if _is_human_presence(drain_tof_queue(tof_queue)):
+                        saw_presence = True
+                        # Notify MCU so its FSM also progresses to SCANNING.
+                        if ser is not None and ser.is_open:
+                            ser.write(b"PRESENCE\n")
+                            ser.flush()
+
+                if saw_presence:
                     break
-                if key == 13:
-                    intro_start_t = time.time()
-                    state = STATE_INTRO
+
+            cap = open_camera()
+            if not cap.isOpened():
+                print("ERROR: Could not open camera.")
+                cap.release()
                 continue
 
-            if state == STATE_INTRO:
-                seconds_remaining = max(0.0, INTRO_DURATION_SECONDS - (time.time() - intro_start_t))
-                intro_frame = draw_intro_screen(display_frame.shape, seconds_remaining)
-                cv2.imshow(WINDOW_TITLE, rotate_output_frame(intro_frame))
-                key = cv2.waitKey(1) & 0xFF
-                if key in (27, ord("q")):
-                    break
-                if seconds_remaining <= 0.0:
-                    state = STATE_SELECT_CAREER
-                continue
+            ui = HoverSelectUI(
+                dwell_seconds=1.5,
+                smoothing_alpha=0.25,
+                cursor_radius=10,
+                button_labels=careers,
+                header_text="Choose a quantum career to begin",
+                layout_config=ui_layout_config,
+            )
 
-            if state == STATE_PROFILE:
-                profile_frame = draw_profile_screen(display_frame.shape, matched_professional, selected_career, matched_test_name)
-                cv2.imshow(WINDOW_TITLE, rotate_output_frame(profile_frame))
-                key = cv2.waitKey(1) & 0xFF
-                if key in (27, ord("q")):
-                    break
-                if key == ord("r"):
-                    state = STATE_SELECT_CAREER
-                    selected_career = None
-                    matched_professional = None
-                    matched_test_name = None
-                    ui.set_buttons(careers, "Choose a quantum career to begin")
-                    ui.set_layout_config(ui_layout_config)
-                continue
+            state = STATE_INTRO
+            intro_start_t = time.time()
+            selected_career = None
+            matching_status = "Waiting to start matching."
+            matched_professional = None
+            matched_test_name = None
+            last_match_t = 0.0
+            allowed_professional_ids = []
+            match_sent = False
+            reset_requested = False
 
-            if state == STATE_SELECT_CAREER:
-                tip_norm = tracker.get_index_tip_norm(display_frame)
-                ui.update_cursor_from_norm(tip_norm, w, h)
-                events = ui.update_and_draw(display_frame)
-                menu_right_edge = get_menu_right_edge(ui)
-                min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
-                guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
-                draw_torso_guide(display_frame, guide_geometry)
-                state_changed = False
-                for event in events:
-                    normalized_event = event.lower()
-                    if normalized_event.startswith("selected:"):
-                        selected_career = event.split(":", 1)[1].strip()
-                        target_professional = resolve_target_professional(selected_career)
-                        if target_professional is None:
+            try:
+                while True:
+                    ok, frame = cap.read()
+                    if not ok:
+                        continue
+
+                    for message in drain_uart_queue(uart_queue):
+                        if message == "RESET":
+                            reset_requested = True
+                        elif message == "PRESENCE":
                             continue
-                        state = STATE_MATCHING
-                        matching_status = f"Career selected: {selected_career}. Looking for a face..."
-                        matched_professional = None
-                        matched_test_name = None
-                        allowed_professional_ids = get_allowed_professional_ids(selected_career)
-                        if not allowed_professional_ids:
-                            matching_status = f"No professionals exist for {selected_career}."
-                        last_match_t = 0.0
-                        state_changed = True
+
+                    if reset_requested:
                         break
 
-                if state_changed:
-                    draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
-            elif state == STATE_MATCHING:
-                menu_right_edge = get_menu_right_edge(ui)
-                min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
-                guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
-                draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
-                now = time.time()
-                if now - last_match_t >= MATCH_INTERVAL_SECONDS:
-                    last_match_t = now
-                    try:
-                        match_region = extract_match_region(display_frame, guide_geometry)
-                        result = embedder.embed_bgr_image(match_region)
-                        matches = find_best_database_matches(
-                            result.embedding,
-                            result.model_name,
-                            top_k=TOP_K_MATCHES,
-                            allowed_professional_ids=allowed_professional_ids,
+                    if state in (STATE_SELECT_CAREER, STATE_MATCHING):
+                        frame = cv2.flip(frame, 1)
+                        display_frame = prepare_camera_frame(frame, visible_ratios)
+                        h, w, _ = display_frame.shape
+
+                    if state == STATE_INTRO:
+                        seconds_remaining = max(0.0, INTRO_DURATION_SECONDS - (time.time() - intro_start_t))
+                        intro_frame = draw_intro_screen((DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3), seconds_remaining)
+                        cv2.imshow(WINDOW_TITLE, rotate_output_frame(intro_frame))
+                        key = cv2.waitKey(1) & 0xFF
+                        if key in (27, ord("q")):
+                            return
+                        if seconds_remaining <= 0.0:
+                            state = STATE_SELECT_CAREER
+                        continue
+
+                    if state == STATE_PROFILE:
+                        profile_frame = draw_profile_screen(
+                            (DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3),
+                            matched_professional,
+                            selected_career,
+                            matched_test_name,
                         )
-                        if matches:
-                            source_professional = matches[0]["professional"]
-                            matched_professional = source_professional
-                            matched_test_name = source_professional[1]
-                            state = STATE_PROFILE
-                        else:
-                            matching_status = (
-                                f"No enrolled face matches are available for {selected_career}. "
-                                "Choose a career that has an enrolled profile."
-                            )
-                    except Exception as exc:
-                        matching_status = f"Looking for a face... ({exc})"
-                draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
+                        cv2.imshow(WINDOW_TITLE, rotate_output_frame(profile_frame))
+                        key = cv2.waitKey(1) & 0xFF
+                        if key in (27, ord("q")):
+                            return
+                        if key == ord("r"):
+                            state = STATE_SELECT_CAREER
+                            selected_career = None
+                            matched_professional = None
+                            matched_test_name = None
+                            ui.set_buttons(careers, "Choose a quantum career to begin")
+                            ui.set_layout_config(ui_layout_config)
+                        continue
 
-            cv2.imshow(WINDOW_TITLE, rotate_output_frame(display_frame))
-            key = cv2.waitKey(1) & 0xFF
-            if key in (27, ord("q")):
-                break
-            if state == STATE_MATCHING and key == ord("r"):
-                state = STATE_SELECT_CAREER
-                selected_career = None
-                ui.set_layout_config(ui_layout_config)
-                ui.set_buttons(careers, "Choose a quantum career to begin")
+                    if state == STATE_SELECT_CAREER:
+                        tip_norm = tracker.get_index_tip_norm(display_frame)
+                        ui.update_cursor_from_norm(tip_norm, w, h)
+                        events = ui.update_and_draw(display_frame)
+                        menu_right_edge = get_menu_right_edge(ui)
+                        min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
+                        guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
+                        draw_torso_guide(display_frame, guide_geometry)
+                        state_changed = False
+                        for event in events:
+                            normalized_event = event.lower()
+                            if normalized_event.startswith("selected:"):
+                                selected_career = event.split(":", 1)[1].strip()
+                                target_professional = resolve_target_professional(selected_career)
+                                if target_professional is None:
+                                    continue
+                                state = STATE_MATCHING
+                                matching_status = f"Career selected: {selected_career}. Looking for a face..."
+                                matched_professional = None
+                                matched_test_name = None
+                                allowed_professional_ids = get_allowed_professional_ids(selected_career)
+                                if not allowed_professional_ids:
+                                    matching_status = f"No professionals exist for {selected_career}."
+                                last_match_t = 0.0
+                                state_changed = True
+                                break
 
+                        if state_changed:
+                            draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
+                    elif state == STATE_MATCHING:
+                        menu_right_edge = get_menu_right_edge(ui)
+                        min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
+                        guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
+                        draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
+
+                        # Submit a new embedding job every MATCH_INTERVAL_SECONDS.
+                        # put_nowait drops the frame if the worker is still busy (queue full).
+                        now = time.time()
+                        if now - last_match_t >= MATCH_INTERVAL_SECONDS:
+                            last_match_t = now
+                            match_region = extract_match_region(display_frame, guide_geometry)
+                            try:
+                                embed_input_q.put_nowait(
+                                    EmbedJob(
+                                        frame_region=match_region.copy(),
+                                        allowed_professional_ids=allowed_professional_ids,
+                                    )
+                                )
+                            except queue.Full:
+                                pass
+
+                        # Collect any result the worker has ready this frame.
+                        try:
+                            embed_result = embed_output_q.get_nowait()
+                            if embed_result.error is not None:
+                                matching_status = f"Looking for a face... ({embed_result.error})"
+                            elif embed_result.matches:
+                                source_professional = embed_result.matches[0]["professional"]
+                                matched_professional = source_professional
+                                matched_test_name = source_professional[1]
+                                state = STATE_PROFILE
+                                if not match_sent:
+                                    if ser is not None and ser.is_open:
+                                        ser.write(b"MATCH\n")
+                                        ser.flush()
+                                    match_sent = True
+                            else:
+                                matching_status = (
+                                    f"No enrolled face matches are available for {selected_career}. "
+                                    "Choose a career that has an enrolled profile."
+                                )
+                        except queue.Empty:
+                            pass
+
+                        draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
+
+                    cv2.imshow(WINDOW_TITLE, rotate_output_frame(display_frame))
+                    key = cv2.waitKey(1) & 0xFF
+                    if key in (27, ord("q")):
+                        return
+                    if state == STATE_MATCHING and key == ord("r"):
+                        state = STATE_SELECT_CAREER
+                        selected_career = None
+                        ui.set_layout_config(ui_layout_config)
+                        ui.set_buttons(careers, "Choose a quantum career to begin")
+            finally:
+                cap.release()
+                drain_uart_queue(uart_queue)
     finally:
+        tof_stop_event.set()
+        embed_stop_event.set()
         embedder.close()
         tracker.close()
-        cap.release()
+        if ser is not None and ser.is_open:
+            ser.close()
+        close_connection()
         cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

@@ -77,6 +77,13 @@ def initialize_database():
         )
     """)
 
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_face_embeddings_model_name ON face_embeddings(model_name)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_professionals_quantum_area ON professionals(quantum_area)"
+    )
+
     connection.commit()
     connection.close()
 

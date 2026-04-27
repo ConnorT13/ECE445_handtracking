@@ -1,6 +1,10 @@
 import math
 
-from hand_tracking.database.db_operations import get_all_face_embeddings, get_professional_by_id
+from hand_tracking.database.db_operations import (
+    get_all_face_embeddings,
+    get_professional_by_id,
+    get_professionals_by_ids,
+)
 
 
 def cosine_similarity(vector_a, vector_b):
@@ -51,10 +55,12 @@ def find_best_database_matches(query_embedding, model_name, top_k=3, allowed_pro
         return []
 
     ranked_ids = rank_matches(query_embedding, candidate_embeddings, top_k=top_k)
+
+    professionals_by_id = get_professionals_by_ids([pid for pid, _ in ranked_ids])
     matches = []
 
     for professional_id, score in ranked_ids:
-        professional = get_professional_by_id(professional_id)
+        professional = professionals_by_id.get(professional_id)
         if professional is not None:
             matches.append({
                 "professional": professional,

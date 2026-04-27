@@ -89,6 +89,22 @@ class InsightFaceEmbedder:
     def close(self):
         return None
 
+    def _get_primary_face(self, image):
+        faces = self._app.get(image)
+        if not faces:
+            return None
+        return max(
+            faces,
+            key=lambda face: (face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1]),
+        )
+
+    def get_primary_face_bbox(self, image):
+        best_face = self._get_primary_face(image)
+        if best_face is None:
+            return None
+        x1, y1, x2, y2 = best_face.bbox
+        return (int(x1), int(y1), int(x2), int(y2))
+
     def embed_image_file(self, image_path):
         image = cv2.imread(image_path)
         if image is None:
@@ -97,11 +113,9 @@ class InsightFaceEmbedder:
         return self.embed_bgr_image(image)
 
     def embed_bgr_image(self, image):
-        faces = self._app.get(image)
-        if not faces:
+        best_face = self._get_primary_face(image)
+        if best_face is None:
             raise ValueError("No face detected in the provided image.")
-
-        best_face = max(faces, key=lambda face: (face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1]))
         embedding = best_face.normed_embedding.tolist()
         return FaceEmbeddingResult(model_name=INSIGHTFACE_MODEL_NAME, embedding=embedding)
 
@@ -127,6 +141,28 @@ class MediaPipeFaceEmbedder:
 
     def close(self):
         self._landmarker.close()
+
+    def get_primary_face_bbox(self, image):
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = self._landmarker.detect(mp_image)
+
+        if not result.face_landmarks:
+            return None
+
+        height, width = image.shape[:2]
+        face_landmarks = result.face_landmarks[0]
+        xs = [landmark.x for landmark in face_landmarks]
+        ys = [landmark.y for landmark in face_landmarks]
+
+        x1 = max(0, min(width - 1, int(min(xs) * width)))
+        y1 = max(0, min(height - 1, int(min(ys) * height)))
+        x2 = max(0, min(width - 1, int(max(xs) * width)))
+        y2 = max(0, min(height - 1, int(max(ys) * height)))
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return (x1, y1, x2, y2)
 
     def embed_image_file(self, image_path):
         image = cv2.imread(image_path)

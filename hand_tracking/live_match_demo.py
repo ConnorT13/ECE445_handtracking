@@ -23,6 +23,7 @@ from hand_tracking.UI_Cursor.hand_tracker import HandTracker
 from hand_tracking.UI_Cursor.user_interface import HoverSelectUI
 from hand_tracking.database.db_init import initialize_database
 from hand_tracking.database.db_operations import (
+    get_all_career_areas,
     close_connection,
     get_all_professionals,
     get_professionals_by_quantum_area,
@@ -79,11 +80,12 @@ TORSO_GUIDE_X_OFFSET_RATIO = -0.08
 TORSO_GUIDE_Y_OFFSET_RATIO = 0.18
 TORSO_GUIDE_MENU_CLEARANCE_PX = 36
 FEATURED_CAREERS = [
+    "Quantum Scientist",
     "Quantum Hardware",
-    "Quantum Software",
-    "Quantum Algorithms",
-    "Quantum Chemistry",
-    "Quantum Education",
+    "Quantum Entrepreneur",
+    "Quantum Collaboration Building",
+    "Quantum Student",
+    "Quantum Engineer",
 ]
 
 STATE_INTRO = "intro"
@@ -673,8 +675,8 @@ def draw_profile_image(frame, image_path, x, y, width, height):
 
 
 def get_available_careers():
-    professionals = {row[4] for row in get_all_professionals() if row[4]}
-    return [career for career in FEATURED_CAREERS if career in professionals]
+    all_areas = get_all_career_areas()
+    return [career for career in FEATURED_CAREERS if career in all_areas]
 
 
 def resolve_target_professional(quantum_area):

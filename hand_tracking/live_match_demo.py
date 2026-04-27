@@ -95,6 +95,7 @@ STATE_MATCHING = "matching"
 STATE_PROFILE = "profile"
 
 PRESENCE_CHECK_INTERVAL_SECONDS = 0.20
+ACTIVE_PRESENCE_CHECK_INTERVAL_SECONDS = 1.00
 PRESENCE_CONFIRMATION_SECONDS = 0.40
 PRESENCE_LOSS_TIMEOUT_SECONDS = 2.00
 WAKE_DISTANCE_CM = 85.0
@@ -102,6 +103,8 @@ SLEEP_DISTANCE_CM = 100.0
 REFERENCE_DISTANCE_CM = 60.0
 REFERENCE_FACE_WIDTH_PX = 220.0
 SHOW_PRESENCE_DEBUG_TEXT = True
+PRESENCE_MEASUREMENT_MAX_WIDTH_PX = 320
+HAND_TRACKING_MAX_WIDTH_PX = 320
 
 
 def open_uart_serial():
@@ -230,8 +233,19 @@ def estimate_face_distance_cm(face_width_px):
     return (REFERENCE_DISTANCE_CM * REFERENCE_FACE_WIDTH_PX) / float(face_width_px)
 
 
+def resize_frame_for_processing(frame, max_width_px):
+    frame_h, frame_w = frame.shape[:2]
+    if frame_w <= max_width_px:
+        return frame
+
+    scale = max_width_px / float(frame_w)
+    target_h = max(1, int(round(frame_h * scale)))
+    return cv2.resize(frame, (max_width_px, target_h), interpolation=cv2.INTER_LINEAR)
+
+
 def measure_presence_distance_cm(embedder, frame):
-    face_bbox = embedder.get_primary_face_bbox(frame)
+    processing_frame = resize_frame_for_processing(frame, PRESENCE_MEASUREMENT_MAX_WIDTH_PX)
+    face_bbox = embedder.get_primary_face_bbox(processing_frame)
     if face_bbox is None:
         return None, None
 
@@ -1217,8 +1231,23 @@ def main():
                 reset_to_wait_for_start()
                 continue
 
-            # Periodic camera-based face distance measurement (all states).
-            if now - last_presence_check_t >= PRESENCE_CHECK_INTERVAL_SECONDS:
+            should_run_camera_presence_check = state in (
+                STATE_WAIT_FOR_START,
+                STATE_MATCHING,
+                STATE_PROFILE,
+            )
+            presence_check_interval = (
+                PRESENCE_CHECK_INTERVAL_SECONDS
+                if state == STATE_WAIT_FOR_START
+                else ACTIVE_PRESENCE_CHECK_INTERVAL_SECONDS
+            )
+
+            # Camera-based face distance checks are expensive on the Pi. Keep them
+            # off the cursor-selection path and run them less often once a session is active.
+            if (
+                should_run_camera_presence_check
+                and now - last_presence_check_t >= presence_check_interval
+            ):
                 last_presence_check_t = now
                 last_measured_distance_cm, _ = measure_presence_distance_cm(embedder, display_frame)
 
@@ -1313,7 +1342,8 @@ def main():
                 continue
 
             if state == STATE_SELECT_CAREER:
-                tip_norm = tracker.get_index_tip_norm(display_frame)
+                hand_tracking_frame = resize_frame_for_processing(display_frame, HAND_TRACKING_MAX_WIDTH_PX)
+                tip_norm = tracker.get_index_tip_norm(hand_tracking_frame)
                 ui.update_cursor_from_norm(tip_norm, w, h)
                 events = ui.update_and_draw(display_frame)
                 menu_right_edge = get_menu_right_edge(ui)

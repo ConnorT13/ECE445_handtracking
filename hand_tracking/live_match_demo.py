@@ -28,6 +28,7 @@ from hand_tracking.database.db_operations import (
     get_all_professionals,
     get_professionals_by_quantum_area,
 )
+from hand_tracking.database.path_utils import resolve_image_path
 from hand_tracking.matching.embedder import create_embedder
 from hand_tracking.matching.match import find_best_database_matches
 
@@ -704,7 +705,8 @@ _image_cache = OrderedDict()
 
 
 def draw_profile_image(frame, image_path, x, y, width, height):
-    if not image_path or not os.path.exists(image_path):
+    resolved_image_path = resolve_image_path(image_path)
+    if resolved_image_path is None:
         cv2.rectangle(frame, (x, y), (x + width, y + height), (55, 55, 55), thickness=-1)
         cv2.rectangle(frame, (x, y), (x + width, y + height), (210, 210, 210), thickness=2)
         cv2.putText(
@@ -719,10 +721,10 @@ def draw_profile_image(frame, image_path, x, y, width, height):
         )
         return
 
-    if image_path not in _image_cache:
-        raw = cv2.imread(image_path)
+    if resolved_image_path not in _image_cache:
+        raw = cv2.imread(resolved_image_path)
         if raw is None:
-            _image_cache[image_path] = None
+            _image_cache[resolved_image_path] = None
             if len(_image_cache) > 20:
                 _image_cache.popitem(last=False)
         else:
@@ -733,11 +735,11 @@ def draw_profile_image(frame, image_path, x, y, width, height):
             offset_y = (height - resized.shape[0]) // 2
             offset_x = (width - resized.shape[1]) // 2
             canvas[offset_y:offset_y + resized.shape[0], offset_x:offset_x + resized.shape[1]] = resized
-            _image_cache[image_path] = canvas
+            _image_cache[resolved_image_path] = canvas
             if len(_image_cache) > 20:
                 _image_cache.popitem(last=False)
 
-    cached = _image_cache.get(image_path)
+    cached = _image_cache.get(resolved_image_path)
     if cached is None:
         cv2.rectangle(frame, (x, y), (x + width, y + height), (55, 55, 55), thickness=-1)
     else:

@@ -307,6 +307,23 @@ def upsert_face_embedding(professional_id, model_name, embedding):
     _invalidate_face_embeddings_cache()
 
 
+def update_professional_image_path(professional_id, image_path):
+    """
+    Updates the stored image path for a professional.
+    """
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE professionals
+        SET image_path = ?
+        WHERE id = ?
+    """, (image_path, professional_id))
+
+    connection.commit()
+    cursor.close()
+
+
 def get_face_embedding(professional_id, model_name):
     """
     Returns a decoded embedding list for a professional/model pair.

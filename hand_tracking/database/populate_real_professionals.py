@@ -1,14 +1,17 @@
 import os
 import sqlite3
+import sys
+
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from hand_tracking.database.db_init import get_database_path, initialize_database
 from hand_tracking.database.db_operations import add_professional, add_tag_to_professional
-
-IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+from hand_tracking.database.path_utils import normalize_image_path_for_storage
 
 
 def _image(filename):
-    return os.path.join(IMAGES_DIR, filename)
+    return normalize_image_path_for_storage(os.path.join("hand_tracking", "database", "images", filename))
 
 
 REAL_PROFESSIONALS = [

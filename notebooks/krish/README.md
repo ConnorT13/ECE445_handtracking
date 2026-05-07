@@ -21,31 +21,31 @@
  
 ## Figures
  
-Figure 1. System block diagram — *Final Report, Figure 1.1*
- 
-Figure 2. Two-way mirror optical principle — *Final Report, Figure 1.2*
- 
-Figure 3. Power distribution chain (STM32 PCB) — *Final Report, Figure 2.1*
- 
-Figure 4. STM32F401 core schematic (decoupling, reset, boot, SWD, USB) — *Final Report, Figure 2.2*
- 
-Figure 5. System finite state machine — *Final Report, Figure 2.3*
- 
-Figure 6. Three-screen UI flow (career selection → matching → profile display) — *Final Report, Figure 2.4*
- 
-Figure 7. Routed PCB layout — *Final Report, Figure 2.5*
- 
-Figure 8. UART integration test terminal log — *Final Report, Figure 3.1*
- 
-Figure 9. Full STM32F401 schematic — *Final Report, Appendix B, Figure B.1*
- 
-Figure 10. Software architecture overview — `notebooks/connor/ece445_software_architecture.png`
- 
-Figure 11. Face matching subsystem diagram — `notebooks/connor/software_face_matching_diagram_simplified_v3.png`
- 
-Figure 12. Hand cursor UI subsystem diagram — `notebooks/connor/software_cursor_ui_diagram_fixed_v3.png`
- 
-Figure 13. Database schema — `notebooks/connor/database_schema.png`
+![Figure 1. System block diagram](block_diagram.png)
+
+![Figure 2. Two-way mirror optical principle](optical_principle.png)
+
+![Figure 3. Power distribution chain (STM32 PCB)](power_circuit.png)
+
+![Figure 4. STM32F401 core schematic (decoupling, reset, boot, SWD, USB)](stm32_core_schematic.png)
+
+![Figure 5. System finite state machine](fsm.png)
+
+![Figure 6. Three-screen UI flow (career selection → matching → profile display)](3_screen_ui_flow.png)
+
+![Figure 7. Routed PCB layout](routed_pcb_layout.png)
+
+![Figure 8. UART integration test terminal log](uart_integration_terminal_log.png)
+
+![Figure 9. Full STM32F401 schematic](full_schematic.png)
+
+![Figure 10. Software architecture overview](../connor/ece445_software_architecture.png)
+
+![Figure 11. Face matching subsystem diagram](../connor/software_face_matching_diagram_simplified_v3.png)
+
+![Figure 12. Hand cursor UI subsystem diagram](../connor/software_cursor_ui_diagram_fixed_v3.png)
+
+![Figure 13. Database schema](../connor/database_schema.png)
  
 ---
  

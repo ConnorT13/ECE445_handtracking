@@ -15,7 +15,7 @@ void hal_tof_init() {
     pinMode(HAL_PRESENCE_BTN_PIN, INPUT_PULLUP);
     piSerial.begin(9600);
     FastLED.addLeds<WS2812B, HAL_LED_PIN, GRB>(leds, HAL_NUM_LEDS);
-    FastLED.setBrightness(30);
+    FastLED.setBrightness(HAL_LED_ON_BRIGHTNESS);
     hal_led_set(false);
 }
 
@@ -25,10 +25,17 @@ int16_t hal_tof_read_mm() {
     return digitalRead(HAL_PRESENCE_BTN_PIN) == LOW ? 200 : 2000;
 }
 
-// Fills the strip white (on=false) or black/off (on=true) and pushes to hardware.
-// Logic is inverted relative to the parameter because the strip wiring is active-LOW.
+// Fills the strip white when on=true or black when on=false and pushes to hardware.
 void hal_led_set(bool on) {
-    fill_solid(leds, HAL_NUM_LEDS, on ? CRGB::Black : CRGB::White);
+    FastLED.setBrightness(HAL_LED_ON_BRIGHTNESS);
+    fill_solid(leds, HAL_NUM_LEDS, on ? CRGB::White : CRGB::Black);
+    FastLED.show();
+}
+
+void hal_led_set_level(uint8_t level) {
+    uint8_t clamped = level > HAL_LED_ON_BRIGHTNESS ? HAL_LED_ON_BRIGHTNESS : level;
+    FastLED.setBrightness(clamped);
+    fill_solid(leds, HAL_NUM_LEDS, clamped > 0 ? CRGB::White : CRGB::Black);
     FastLED.show();
 }
 

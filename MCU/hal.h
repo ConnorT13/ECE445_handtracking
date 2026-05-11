@@ -7,6 +7,7 @@
 // WS2812B strip on pin 6 — change HAL_LED_PIN or HAL_NUM_LEDS here if hardware moves
 #define HAL_LED_PIN  6
 #define HAL_NUM_LEDS 140
+#define HAL_LED_ON_BRIGHTNESS 30
 
 // Stub: button on pin 7 simulates ToF presence during development (active LOW via INPUT_PULLUP)
 #define HAL_PRESENCE_BTN_PIN 7
@@ -19,8 +20,11 @@ void hal_tof_init();
 int16_t hal_tof_read_mm();
 
 // Sets the LED strip on (on=true) or off (on=false).
-// Polarity is inverted in the implementation to match active-LOW wiring.
 void hal_led_set(bool on);
+
+// Sets the LED strip brightness level from 0..HAL_LED_ON_BRIGHTNESS using white light.
+// level=0 turns the strip off.
+void hal_led_set_level(uint8_t level);
 
 // Sends a null-terminated string over the SoftwareSerial UART to the Pi.
 void hal_uart_send(const char* msg);

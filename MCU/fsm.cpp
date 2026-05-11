@@ -2,16 +2,17 @@
 #include "hal.h"
 #include <Arduino.h>
 
-enum class State { IDLE, SCANNING, MATCH_PENDING, MATCH_DISPLAYED };
+enum class State { IDLE, SCANNING, MATCH_DISPLAYED };
 
 static State state;
 static uint32_t stateEnteredAt;  // millis() when the current state was entered
+static constexpr uint32_t SCANNING_TIMEOUT_MS = 15000UL;
+static constexpr uint32_t MATCH_FADE_DURATION_MS = 1500UL;
 
 // Transition helper: prints debug line and records entry time.
 static void enter(State next, const char* label) {
     const char* from = (state == State::IDLE)             ? "IDLE"
                      : (state == State::SCANNING)         ? "SCANNING"
-                     : (state == State::MATCH_PENDING)    ? "MATCH_PENDING"
                                                           : "MATCH_DISPLAYED";
     Serial.print(F("FSM: "));
     Serial.print(from);
@@ -58,7 +59,7 @@ static void leave_scanning_idle() {
 
 static void tick_scanning() {
     // 15-second timeout
-    if (millis() - stateEnteredAt >= 150000UL) {
+    if (millis() - stateEnteredAt >= SCANNING_TIMEOUT_MS) {
         leave_scanning_idle();
         return;
     }
@@ -67,28 +68,28 @@ static void tick_scanning() {
     if (!hal_uart_readline(buf, sizeof(buf))) return;
 
     if (strcmp(buf, "MATCH") == 0) {
-        enter(State::MATCH_PENDING, "MATCH_PENDING");
-        // LED stays off — hal_led_set called after 10s delay in tick_match_pending
+        enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
     } else if (strcmp(buf, "NO_MATCH") == 0) {
         leave_scanning_idle();
-    }
-}
-
-// ── MATCH_PENDING ─────────────────────────────────────────────────────────────
-
-// Waits 10s after receiving MATCH before turning the LED on, then enters MATCH_DISPLAYED.
-static void tick_match_pending() {
-    if (millis() - stateEnteredAt >= 10000UL) {
-        hal_led_set(false);  // turn strip on (inverted wiring)
-        hal_uart_send("RESET\n");
-        enter(State::MATCH_DISPLAYED, "MATCH_DISPLAYED");
+    } else if (strcmp(buf, "RESET") == 0) {
+        leave_scanning_idle();
     }
 }
 
 // ── MATCH_DISPLAYED ──────────────────────────────────────────────────────────
 
 static void tick_match_displayed() {
-    if (millis() - stateEnteredAt >= 10000UL) {
+    uint32_t elapsed = millis() - stateEnteredAt;
+    if (elapsed < MATCH_FADE_DURATION_MS) {
+        uint32_t remaining = MATCH_FADE_DURATION_MS - elapsed;
+        uint8_t level = (uint8_t)((remaining * HAL_LED_ON_BRIGHTNESS) / MATCH_FADE_DURATION_MS);
+        hal_led_set_level(level);
+    } else {
+        hal_led_set(false);
+    }
+
+    char buf[32];
+    if (hal_uart_readline(buf, sizeof(buf)) && strcmp(buf, "RESET") == 0) {
         enter(State::IDLE, "IDLE");
     }
 }
@@ -107,7 +108,6 @@ void fsm_tick() {
     switch (state) {
         case State::IDLE:            tick_idle();            break;
         case State::SCANNING:        tick_scanning();        break;
-        case State::MATCH_PENDING:   tick_match_pending();   break;
         case State::MATCH_DISPLAYED: tick_match_displayed(); break;
     }
 }

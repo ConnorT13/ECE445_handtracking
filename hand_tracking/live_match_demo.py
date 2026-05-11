@@ -1361,7 +1361,7 @@ def main():
     matching_guidance_shown = False
     profile_started_t = None
 
-    def reset_to_wait_for_start():
+    def reset_to_wait_for_start(notify_mcu=False):
         nonlocal state
         nonlocal selected_career
         nonlocal matching_status
@@ -1376,6 +1376,9 @@ def main():
         nonlocal matching_guidance_started_t
         nonlocal matching_guidance_shown
         nonlocal profile_started_t
+
+        if notify_mcu:
+            send_uart_line(ser, "RESET")
 
         state = STATE_WAIT_FOR_START
         selected_career = None
@@ -1492,12 +1495,12 @@ def main():
                 and last_in_range_t is not None
                 and now - last_in_range_t >= PRESENCE_LOSS_TIMEOUT_SECONDS
             ):
-                reset_to_wait_for_start()
+                reset_to_wait_for_start(notify_mcu=True)
                 continue
 
             if state == STATE_PROFILE:
                 if profile_started_t is not None and now - profile_started_t >= PROFILE_SCREEN_DISPLAY_SECONDS:
-                    reset_to_wait_for_start()
+                    reset_to_wait_for_start(notify_mcu=True)
                     continue
                 profile_frame = draw_profile_screen(
                     (DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3),
@@ -1560,7 +1563,7 @@ def main():
                     and now - last_in_range_t >= MATCHING_SCREEN_LOSS_TIMEOUT_SECONDS
                 ):
                     if matching_guidance_shown:
-                        reset_to_wait_for_start()
+                        reset_to_wait_for_start(notify_mcu=True)
                         continue
                     matching_guidance_started_t = now
 
@@ -1626,6 +1629,8 @@ def main():
                 ui.set_buttons(careers, "")
     finally:
         cap.release()
+        if ser is not None and ser.is_open and state != STATE_WAIT_FOR_START:
+            send_uart_line(ser, "RESET")
         tof_stop_event.set()
         embed_stop_event.set()
         embedder.close()

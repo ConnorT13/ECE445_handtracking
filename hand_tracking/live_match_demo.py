@@ -82,6 +82,7 @@ NEW_VISIBLE_HEIGHT_CM = 58.0
 NEW_VISIBLE_WIDTH_CM = 36.5
 DISPLAY_CANVAS_WIDTH_PX = 720
 DISPLAY_CANVAS_HEIGHT_PX = 1280
+CURSOR_VERTICAL_OFFSET_CM = 6.0
 
 UI_SCALE = 0.82
 UI_LEFT_MARGIN = 0.06
@@ -611,6 +612,10 @@ def prepare_camera_frame(frame, visible_ratios):
     )
     cropped = center_crop_frame(portrait_canvas, visible_ratios, preserve_aspect=True)
     return scale_frame_to_screen(cropped, (DISPLAY_CANVAS_WIDTH_PX, DISPLAY_CANVAS_HEIGHT_PX))
+
+
+def create_black_presentation_frame(frame_shape):
+    return np.zeros(frame_shape, dtype=np.uint8)
 
 
 def get_window_size():
@@ -1525,9 +1530,13 @@ def main():
             if state == STATE_SELECT_CAREER:
                 hand_tracking_frame = resize_frame_for_processing(display_frame, HAND_TRACKING_MAX_WIDTH_PX)
                 tip_norm = tracker.get_index_tip_norm(hand_tracking_frame)
-                ui.update_cursor_from_norm(tip_norm, w, h)
-                events = ui.update_and_draw(display_frame)
-                draw_centered_screen_title(display_frame, "Use your finger to\nselect your quantum future")
+                cursor_vertical_offset_px = int(
+                    round((CURSOR_VERTICAL_OFFSET_CM / NEW_VISIBLE_HEIGHT_CM) * DISPLAY_CANVAS_HEIGHT_PX)
+                )
+                ui.update_cursor_from_norm(tip_norm, w, h, offset_y_px=cursor_vertical_offset_px)
+                stage_frame = create_black_presentation_frame(display_frame.shape)
+                events = ui.update_and_draw(stage_frame)
+                draw_centered_screen_title(stage_frame, "Use your finger to\nselect your quantum future")
                 state_changed = False
                 for event in events:
                     normalized_event = event.lower()
@@ -1551,10 +1560,12 @@ def main():
                         break
 
                 if state_changed:
-                    draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
+                    draw_matching_overlay(stage_frame, selected_career, matching_status, visible_ratios)
+                display_frame = stage_frame
             elif state == STATE_MATCHING:
+                stage_frame = create_black_presentation_frame(display_frame.shape)
                 guide_geometry = get_torso_guide_geometry(w, h, ui_layout_config, mode="matching")
-                draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
+                draw_torso_guide(stage_frame, guide_geometry, "Keep your face and torso inside the guide")
 
                 if (
                     not keep_awake_in_range
@@ -1569,7 +1580,7 @@ def main():
 
                 if matching_guidance_started_t is not None:
                     draw_fading_message(
-                        display_frame,
+                        stage_frame,
                         "Position yourself in the silhouette",
                         matching_guidance_started_t,
                         MATCHING_GUIDANCE_FADE_SECONDS,
@@ -1616,7 +1627,8 @@ def main():
                 except queue.Empty:
                     pass
 
-                draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
+                draw_matching_overlay(stage_frame, selected_career, matching_status, visible_ratios)
+                display_frame = stage_frame
 
             cv2.imshow(WINDOW_TITLE, rotate_output_frame(display_frame))
             key = cv2.waitKey(1) & 0xFF

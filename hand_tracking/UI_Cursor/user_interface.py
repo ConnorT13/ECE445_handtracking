@@ -204,7 +204,7 @@ class HoverSelectUI:
         self.hover_start_t = None
         self._initialized_layout = False
 
-    def update_cursor_from_norm(self, tip_norm, frame_w: int, frame_h: int):
+    def update_cursor_from_norm(self, tip_norm, frame_w: int, frame_h: int, offset_y_px: int = 0):
         """
         tip_norm: (x_norm, y_norm) or None
         Updates internal smoothed cursor position.
@@ -217,7 +217,7 @@ class HoverSelectUI:
 
         self.last_hand_seen_t = time.time()
         tx = int(tip_norm[0] * frame_w)
-        ty = int(tip_norm[1] * frame_h)
+        ty = int(tip_norm[1] * frame_h) - offset_y_px
 
         if self.cursor_x is None:
             self.cursor_x, self.cursor_y = tx, ty

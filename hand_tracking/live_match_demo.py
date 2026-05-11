@@ -71,7 +71,7 @@ CameraCandidate = namedtuple("CameraCandidate", ["label", "backend", "configure_
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
-MATCH_INTERVAL_SECONDS = 1.5
+MATCH_INTERVAL_SECONDS = 0.35
 TOP_K_MATCHES = 3
 CAMERA_ROTATION = None
 WINDOW_OUTPUT_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
@@ -128,6 +128,7 @@ REFERENCE_FACE_WIDTH_PX = 220.0
 SHOW_PRESENCE_DEBUG_TEXT = True
 PRESENCE_MEASUREMENT_MAX_WIDTH_PX = 320
 HAND_TRACKING_MAX_WIDTH_PX = 320
+MATCH_USE_FULL_FRAME = True
 
 
 def _camera_candidate(label, backend_attr_name, configure_mjpg):
@@ -964,6 +965,8 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
 
 
 def extract_match_region(frame, guide_geometry):
+    if MATCH_USE_FULL_FRAME:
+        return frame
     x1, y1, x2, y2 = guide_geometry["match_roi"]
     return frame[y1:y2, x1:x2]
 

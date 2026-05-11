@@ -20,7 +20,7 @@ except ImportError:
     serial = None
 
 from hand_tracking.UI_Cursor.hand_tracker import HandTracker
-from hand_tracking.UI_Cursor.user_interface import HoverSelectUI
+from hand_tracking.UI_Cursor.user_interface import HoverSelectUI, layout_menu_items
 from hand_tracking.database.db_init import initialize_database
 from hand_tracking.database.db_operations import (
     get_all_career_areas,
@@ -367,6 +367,57 @@ def draw_presence_debug_text(frame, distance_cm, is_in_range):
         cv2.LINE_AA,
     )
     return debug_frame
+
+
+def get_presence_status_text(distance_cm, is_in_range):
+    if distance_cm is None:
+        return "Step in front of the mirror to begin"
+    state_text = "IN RANGE" if is_in_range else "TOO FAR"
+    return f"Face distance: {distance_cm:.0f} cm | Wake threshold: {WAKE_DISTANCE_CM:.0f} cm | {state_text}"
+
+
+def draw_static_career_buttons(frame, careers, layout_config):
+    if not careers:
+        return
+
+    frame_h, frame_w = frame.shape[:2]
+    layout = layout_menu_items(frame_w, frame_h, len(careers), layout_config)
+    button_w = layout["button_w"]
+    button_h = layout["button_h"]
+    gap = layout["gap"]
+
+    if layout["layout_mode"] == "grid":
+        grid_x = layout["grid_x"]
+        grid_y = layout["grid_y"]
+        cols = layout["grid_cols"]
+        positions = []
+        for index, label in enumerate(careers):
+            row = index // cols
+            col = index % cols
+            x = grid_x + col * (button_w + gap)
+            y = grid_y + row * (button_h + gap)
+            positions.append((label, x, y))
+    else:
+        x0 = layout["x0"]
+        y0 = layout["y0"]
+        positions = [(label, x0, y0 + index * (button_h + gap)) for index, label in enumerate(careers)]
+
+    for label, x, y in positions:
+        cv2.rectangle(frame, (x, y), (x + button_w, y + button_h), (38, 38, 38), thickness=-1)
+        cv2.rectangle(frame, (x, y), (x + button_w, y + button_h), (130, 130, 130), thickness=2)
+        text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, 2)
+        text_x = x + max(12, (button_w - text_size[0]) // 2)
+        text_y = y + button_h // 2 + 10
+        cv2.putText(
+            frame,
+            label,
+            (text_x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            FONT_SCALE,
+            (228, 228, 228),
+            2,
+            cv2.LINE_AA,
+        )
 
 
 def _configure_camera(cap, camera_candidate):
@@ -971,9 +1022,46 @@ def extract_match_region(frame, guide_geometry):
     return frame[y1:y2, x1:x2]
 
 
-def draw_wait_for_start_screen(frame_shape, distance_cm=None, is_in_range=False):
+def draw_wait_for_start_screen(frame_shape, careers, layout_config, distance_cm=None, is_in_range=False):
     frame = np.zeros(frame_shape, dtype=np.uint8)
-    return draw_presence_debug_text(frame, distance_cm, is_in_range)
+    frame_h, frame_w = frame.shape[:2]
+    title = "Select your quantum future"
+    status_text = get_presence_status_text(distance_cm, is_in_range)
+
+    title_scale = 0.98
+    title_size, _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, title_scale, 3)
+    title_x = (frame_w - title_size[0]) // 2
+    title_y = frame_h // 2 - 120
+    cv2.putText(
+        frame,
+        title,
+        (title_x, title_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        title_scale,
+        (255, 255, 255),
+        3,
+        cv2.LINE_AA,
+    )
+
+    status_lines = wrap_text(status_text, 40)
+    status_y = title_y + 52
+    status_color = (0, 220, 0) if is_in_range else (200, 200, 200) if distance_cm is None else (0, 180, 255)
+    for line_index, line in enumerate(status_lines[:2]):
+        line_size, _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.66, 2)
+        line_x = (frame_w - line_size[0]) // 2
+        cv2.putText(
+            frame,
+            line,
+            (line_x, status_y + line_index * 32),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.66,
+            status_color,
+            2,
+            cv2.LINE_AA,
+        )
+
+    draw_static_career_buttons(frame, careers, layout_config)
+    return frame
 
 
 def draw_profile_screen(frame_shape, professional, selected_career, matched_test_name):
@@ -1341,6 +1429,8 @@ def main():
 
                 wait_frame = draw_wait_for_start_screen(
                     display_frame.shape,
+                    careers=careers,
+                    layout_config=ui_layout_config,
                     distance_cm=last_measured_distance_cm,
                     is_in_range=wake_in_range,
                 )

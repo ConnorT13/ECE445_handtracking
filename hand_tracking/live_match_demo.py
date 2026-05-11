@@ -934,6 +934,38 @@ def get_allowed_professional_ids(quantum_area):
     return [row[0] for row in professionals]
 
 
+def draw_search_feedback(frame, panel_x, panel_y, panel_w):
+    phase = time.time()
+    dot_count = int((phase * 2.2) % 4)
+    label = f"Searching{'.' * dot_count}"
+
+    cv2.putText(
+        frame,
+        label,
+        (panel_x + 20, panel_y + 145),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.58,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    bar_x = panel_x + 20
+    bar_y = panel_y + 156
+    bar_w = panel_w - 40
+    bar_h = 10
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (58, 58, 58), thickness=-1)
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (125, 125, 125), thickness=1)
+
+    segment_w = max(56, int(bar_w * 0.22))
+    cycle = max(1, bar_w + segment_w)
+    segment_offset = int((phase * 220) % cycle) - segment_w
+    left = max(bar_x, bar_x + segment_offset)
+    right = min(bar_x + bar_w, bar_x + segment_offset + segment_w)
+    if right > left:
+        cv2.rectangle(frame, (left, bar_y + 1), (right, bar_y + bar_h - 1), (0, 255, 255), thickness=-1)
+
+
 def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
     h, w, _ = frame.shape
     safe_area = compute_safe_area(w, h, visible_ratios)
@@ -981,11 +1013,12 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
         scale=0.46,
         thickness=1,
     )
+    draw_search_feedback(frame, panel_x, panel_y, panel_w)
     draw_text_block(
         frame,
         status_text,
         panel_x + 20,
-        panel_y + 180,
+        panel_y + 188,
         max_chars=36,
         line_height=18,
         color=(215, 215, 215),

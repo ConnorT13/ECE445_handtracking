@@ -32,8 +32,19 @@ from hand_tracking.matching.embedder import create_embedder
 from hand_tracking.matching.match import find_best_database_matches
 
 
+# Primary local switch for laptop vs final Raspberry Pi deployment.
+# Leave as "laptop" for local development; change to "rpi" on the Pi.
+DEFAULT_HARDWARE_TARGET = "laptop"
+
+# Optional runtime override:
+#   SMART_MIRROR_TARGET=laptop python -m hand_tracking.live_match_demo
+#   SMART_MIRROR_TARGET=rpi python -m hand_tracking.live_match_demo
+ENV_HARDWARE_TARGET = "SMART_MIRROR_TARGET"
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Path to the compiled VL53L3CX binary (run `make example` in VL53L3CX_rasppi/).
-TOF_BINARY_PATH = "/home/ece445/Desktop/ECE445_handtracking/VL53L3CX_rasppi/bin/main"
+DEFAULT_TOF_BINARY_PATH = os.path.join(REPO_ROOT, "VL53L3CX_rasppi", "bin", "main")
 # Distance in mm below which the Pi-side ToF sensor counts as a person present.
 TOF_PRESENCE_THRESHOLD_MM = 500
 # Minimum Signal (Mcps) a valid reading must have — filters noise and tiny objects.
@@ -44,6 +55,19 @@ TOF_MAX_SIGMA_MM = 50.0
 TofReading = namedtuple("TofReading", ["distance", "signal", "sigma_mm"])
 EmbedJob = namedtuple("EmbedJob", ["frame_region", "allowed_professional_ids"])
 EmbedResult = namedtuple("EmbedResult", ["matches", "error"])
+HardwareProfile = namedtuple(
+    "HardwareProfile",
+    [
+        "name",
+        "enable_tof",
+        "enable_uart",
+        "camera_backend",
+        "configure_mjpg",
+        "fullscreen_window",
+        "uart_device",
+        "tof_binary_path",
+    ],
+)
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
@@ -107,14 +131,49 @@ PRESENCE_MEASUREMENT_MAX_WIDTH_PX = 320
 HAND_TRACKING_MAX_WIDTH_PX = 320
 
 
-def open_uart_serial():
+def _resolve_hardware_profile():
+    target = os.environ.get(ENV_HARDWARE_TARGET, DEFAULT_HARDWARE_TARGET).strip().lower()
+    profiles = {
+        "laptop": HardwareProfile(
+            name="laptop",
+            enable_tof=False,
+            enable_uart=False,
+            camera_backend=getattr(cv2, "CAP_ANY", 0),
+            configure_mjpg=False,
+            fullscreen_window=False,
+            uart_device="/dev/serial0",
+            tof_binary_path=DEFAULT_TOF_BINARY_PATH,
+        ),
+        "rpi": HardwareProfile(
+            name="rpi",
+            enable_tof=True,
+            enable_uart=True,
+            camera_backend=getattr(cv2, "CAP_V4L2", getattr(cv2, "CAP_ANY", 0)),
+            configure_mjpg=True,
+            fullscreen_window=True,
+            uart_device="/dev/serial0",
+            tof_binary_path=DEFAULT_TOF_BINARY_PATH,
+        ),
+    }
+    if target not in profiles:
+        valid_targets = ", ".join(sorted(profiles))
+        raise ValueError(
+            f"Unsupported {ENV_HARDWARE_TARGET}={target!r}. Expected one of: {valid_targets}."
+        )
+    return profiles[target]
+
+
+def open_uart_serial(hardware_profile):
+    if not hardware_profile.enable_uart:
+        logging.info("[UART] Disabled for hardware target '%s'.", hardware_profile.name)
+        return None
     if serial is None:
         raise RuntimeError("pyserial is not installed. Run: pip3 install pyserial")
 
     try:
-        ser = serial.Serial("/dev/serial0", baudrate=9600, timeout=1)
+        ser = serial.Serial(hardware_profile.uart_device, baudrate=9600, timeout=1)
     except serial.SerialException as exc:
-        print(f"ERROR: could not open /dev/serial0 — {exc}")
+        print(f"ERROR: could not open {hardware_profile.uart_device} — {exc}")
         print("Check raspi-config: disable serial login shell, enable hardware serial port.")
         raise
 
@@ -153,21 +212,22 @@ _TOF_LINE_RE = re.compile(
 )
 
 
-def tof_reader_loop(distance_queue, stop_event):
+def tof_reader_loop(distance_queue, stop_event, hardware_profile):
     """Spawns the VL53L3CX binary and streams valid distance readings into distance_queue.
     Restarts automatically on crash with exponential backoff (1s–30s)."""
     backoff = 1.0
+    tof_binary_path = hardware_profile.tof_binary_path
 
     while not stop_event.is_set():
         try:
             proc = subprocess.Popen(
-                [TOF_BINARY_PATH],
+                [tof_binary_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
             )
         except FileNotFoundError:
-            logging.error("[ToF] Binary not found at %s. Run `make example` in VL53L3CX_rasppi/.", TOF_BINARY_PATH)
+            logging.error("[ToF] Binary not found at %s. Run `make example` in VL53L3CX_rasppi/.", tof_binary_path)
             return
         except Exception as exc:
             logging.error("[ToF] Failed to start sensor binary: %s", exc)
@@ -286,16 +346,21 @@ def draw_presence_debug_text(frame, distance_cm, is_in_range):
     return debug_frame
 
 
-def open_camera():
-    # cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
-
-    # wsl videocapture
-    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+def open_camera(hardware_profile):
+    cap = cv2.VideoCapture(0, hardware_profile.camera_backend)
+    if hardware_profile.configure_mjpg:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cap.set(cv2.CAP_PROP_FPS, 30)
     return cap
+
+
+def send_uart_line(ser, line):
+    if ser is None or not ser.is_open:
+        return
+    ser.write(f"{line}\n".encode("ascii"))
+    ser.flush()
 
 
 def compute_visible_ratios(
@@ -1086,12 +1151,14 @@ def embedding_worker(embedder, input_q, output_q, stop_event):
 
 
 def main():
+    hardware_profile = _resolve_hardware_profile()
     initialize_database()
     visible_ratios = compute_visible_ratios()
     ui_layout_config = build_ui_layout_config(visible_ratios)
     window_w, window_h = get_window_size()
     cv2.namedWindow(WINDOW_TITLE, cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    if hardware_profile.fullscreen_window:
+        cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.resizeWindow(WINDOW_TITLE, window_w, window_h)
     tracker = HandTracker(max_num_hands=1)
     careers = get_available_careers()
@@ -1108,13 +1175,23 @@ def main():
         # format="%(asctime)s %(levelname)s %(message)s",
         force=True  # overrides any existing handler configuration
     )
-    tof_thread = threading.Thread(
-        target=tof_reader_loop, args=(tof_queue, tof_stop_event), daemon=True
+    logging.info(
+        "Hardware target '%s' active (UART=%s, ToF=%s, fullscreen=%s).",
+        hardware_profile.name,
+        hardware_profile.enable_uart,
+        hardware_profile.enable_tof,
+        hardware_profile.fullscreen_window,
     )
-    tof_thread.start()
+    if hardware_profile.enable_tof:
+        tof_thread = threading.Thread(
+            target=tof_reader_loop,
+            args=(tof_queue, tof_stop_event, hardware_profile),
+            daemon=True,
+        )
+        tof_thread.start()
 
     try:
-        ser = open_uart_serial()
+        ser = open_uart_serial(hardware_profile)
         if ser is not None and ser.is_open:
             uart_thread = threading.Thread(target=uart_reader_loop, args=(ser, uart_queue), daemon=True)
             uart_thread.start()
@@ -1142,7 +1219,7 @@ def main():
         cv2.destroyAllWindows()
         return
 
-    cap = open_camera()
+    cap = open_camera(hardware_profile)
     if not cap.isOpened():
         print("ERROR: Could not open camera.")
         tof_stop_event.set()
@@ -1263,9 +1340,7 @@ def main():
             # Pi-side ToF trigger: parallel presence path alongside UART and camera.
             if state == STATE_WAIT_FOR_START and _is_human_presence(drain_tof_queue(tof_queue)):
                 # Notify MCU so its FSM also progresses to SCANNING.
-                if ser is not None and ser.is_open:
-                    ser.write(b"PRESENCE\n")
-                    ser.flush()
+                send_uart_line(ser, "PRESENCE")
                 intro_start_t = now
                 state = STATE_INTRO
                 last_in_range_t = now
@@ -1276,9 +1351,7 @@ def main():
                     if presence_in_range_since_t is None:
                         presence_in_range_since_t = now
                     elif now - presence_in_range_since_t >= PRESENCE_CONFIRMATION_SECONDS:
-                        if ser is not None and ser.is_open:
-                            ser.write(b"PRESENCE\n")
-                            ser.flush()
+                        send_uart_line(ser, "PRESENCE")
                         intro_start_t = now
                         state = STATE_INTRO
                         last_in_range_t = now
@@ -1295,9 +1368,7 @@ def main():
                 if key in (27, ord("q")):
                     break
                 if key == 13:
-                    if ser is not None and ser.is_open:
-                        ser.write(b"PRESENCE\n")
-                        ser.flush()
+                    send_uart_line(ser, "PRESENCE")
                     intro_start_t = now
                     state = STATE_INTRO
                     last_in_range_t = now
@@ -1403,9 +1474,7 @@ def main():
                         matched_test_name = source_professional[1]
                         state = STATE_PROFILE
                         if not match_sent:
-                            if ser is not None and ser.is_open:
-                                ser.write(b"MATCH\n")
-                                ser.flush()
+                            send_uart_line(ser, "MATCH")
                             match_sent = True
                     else:
                         matching_status = (

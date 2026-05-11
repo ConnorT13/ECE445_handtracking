@@ -101,9 +101,15 @@ MATCHING_PANEL_MARGIN_Y = 0.04
 PROFILE_TITLE_SCALE = 0.78
 PROFILE_NAME_SCALE = 0.74
 TORSO_GUIDE_WIDTH_RATIO = 0.42
-TORSO_GUIDE_HEIGHT_RATIO = 0.74
-TORSO_GUIDE_X_OFFSET_RATIO = -0.08
-TORSO_GUIDE_Y_OFFSET_RATIO = 0.18
+TORSO_GUIDE_HEIGHT_RATIO = 0.46
+TORSO_GUIDE_X_OFFSET_RATIO = 0.0
+TORSO_GUIDE_Y_OFFSET_RATIO = -0.10
+TORSO_GUIDE_TOP_PADDING_PX = 88
+TORSO_GUIDE_BOTTOM_CLEARANCE_PX = 28
+MATCH_GUIDE_WIDTH_RATIO = 0.82
+MATCH_GUIDE_HEIGHT_RATIO = 0.82
+MATCH_GUIDE_TOP_PADDING_PX = 28
+MATCH_GUIDE_BOTTOM_PADDING_PX = 24
 QUANTUM_BUILDER_CAREER = "Quantum Builder"
 FEATURED_CAREERS = [
     "Quantum Scientist",
@@ -121,6 +127,7 @@ PRESENCE_CHECK_INTERVAL_SECONDS = 0.20
 ACTIVE_PRESENCE_CHECK_INTERVAL_SECONDS = 1.00
 PRESENCE_CONFIRMATION_SECONDS = 0.40
 PRESENCE_LOSS_TIMEOUT_SECONDS = 2.00
+MATCHING_SCREEN_LOSS_TIMEOUT_SECONDS = 5.00
 WAKE_DISTANCE_CM = 85.0
 SLEEP_DISTANCE_CM = 100.0
 REFERENCE_DISTANCE_CM = 60.0
@@ -420,6 +427,44 @@ def draw_static_career_buttons(frame, careers, layout_config):
         )
 
 
+def draw_centered_screen_title(frame, title, subtitle_lines=None):
+    frame_h, frame_w = frame.shape[:2]
+    title_scale = 0.98
+    title_lines = title.split("\n")
+    title_line_height = 50
+    title_start_y = frame_h // 2 - 120 - ((len(title_lines) - 1) * title_line_height) // 2
+    for line_index, title_line in enumerate(title_lines):
+        title_size, _ = cv2.getTextSize(title_line, cv2.FONT_HERSHEY_SIMPLEX, title_scale, 3)
+        title_x = (frame_w - title_size[0]) // 2
+        title_y = title_start_y + line_index * title_line_height
+        cv2.putText(
+            frame,
+            title_line,
+            (title_x, title_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            title_scale,
+            (255, 255, 255),
+            3,
+            cv2.LINE_AA,
+        )
+
+    if subtitle_lines:
+        status_y = title_start_y + len(title_lines) * title_line_height + 12
+        for line_index, (line, color) in enumerate(subtitle_lines):
+            line_size, _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.66, 2)
+            line_x = (frame_w - line_size[0]) // 2
+            cv2.putText(
+                frame,
+                line,
+                (line_x, status_y + line_index * 32),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.66,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+
+
 def _configure_camera(cap, camera_candidate):
     if camera_candidate.configure_mjpg:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -598,62 +643,47 @@ def build_ui_layout_config(visible_ratios):
     }
 
 
-def get_torso_guide_geometry(frame_w, frame_h, min_left_x=None):
-    guide_h = int(frame_h * TORSO_GUIDE_HEIGHT_RATIO)
-    guide_w = int(frame_w * TORSO_GUIDE_WIDTH_RATIO)
-    center_x = frame_w // 2 + int(frame_w * TORSO_GUIDE_X_OFFSET_RATIO)
-    center_y = frame_h // 2 + int(frame_h * TORSO_GUIDE_Y_OFFSET_RATIO)
-    top_y = max(120, center_y - guide_h // 2)
-    left_x = center_x - guide_w // 2
-    right_x = left_x + guide_w
+def get_torso_guide_geometry(frame_w, frame_h, layout_config=None, mode="selection"):
+    if mode == "matching":
+        guide_w = int(frame_w * MATCH_GUIDE_WIDTH_RATIO)
+        guide_h = int(frame_h * MATCH_GUIDE_HEIGHT_RATIO)
+        center_x = frame_w // 2
+        top_y = MATCH_GUIDE_TOP_PADDING_PX
+        bottom_limit = frame_h - MATCH_GUIDE_BOTTOM_PADDING_PX
+        if top_y + guide_h > bottom_limit:
+            guide_h = max(120, bottom_limit - top_y)
+    else:
+        guide_w = int(frame_w * TORSO_GUIDE_WIDTH_RATIO)
+        guide_h = int(frame_h * TORSO_GUIDE_HEIGHT_RATIO)
+        center_x = frame_w // 2 + int(frame_w * TORSO_GUIDE_X_OFFSET_RATIO)
+        if layout_config is not None:
+            menu_layout = layout_menu_items(frame_w, frame_h, len(FEATURED_CAREERS), layout_config)
+            bottom_limit = menu_layout["grid_y"] - TORSO_GUIDE_BOTTOM_CLEARANCE_PX
+        else:
+            bottom_limit = int(frame_h * 0.66)
+        top_y = max(TORSO_GUIDE_TOP_PADDING_PX, bottom_limit - guide_h)
+
     bottom_y = top_y + guide_h
+    left_x = max(24, center_x - guide_w // 2)
+    right_x = min(frame_w - 24, left_x + guide_w)
+    left_x = right_x - guide_w
+    center_x = left_x + guide_w // 2
 
-    if left_x < 0:
-        left_x = 0
-        right_x = guide_w
-        center_x = guide_w // 2
-    elif right_x > frame_w:
-        right_x = frame_w
-        left_x = frame_w - guide_w
-        center_x = left_x + guide_w // 2
-    if bottom_y > frame_h - 20:
-        bottom_y = frame_h - 20
-        top_y = bottom_y - guide_h
-
-    if min_left_x is not None and left_x < min_left_x:
-        shift = min_left_x - left_x
-        left_x += shift
-        right_x += shift
-        center_x += shift
-        if right_x > frame_w - 20:
-            overshoot = right_x - (frame_w - 20)
-            left_x -= overshoot
-            right_x -= overshoot
-            center_x -= overshoot
-
-    head_radius_x = int(guide_w * 0.14)
-    head_radius_y = int(guide_h * 0.155)
+    head_radius_x = int(guide_w * (0.19 if mode != "matching" else 0.20))
+    head_radius_y = int(guide_h * 0.20)
     head_center = (center_x, top_y + head_radius_y + 10)
 
-    neck_top_y = head_center[1] + head_radius_y - int(guide_h * 0.02)
-    neck_base_y = top_y + int(guide_h * 0.30)
-    shoulder_y = top_y + int(guide_h * 0.38)
-    chest_y = top_y + int(guide_h * 0.48)
-    waist_y = top_y + int(guide_h * 0.73)
-    hip_y = bottom_y - int(guide_h * 0.02)
-    neck_half_w = int(guide_w * 0.10)
-    shoulder_half_w = int(guide_w * 0.41)
-    chest_half_w = int(guide_w * 0.46)
-    waist_half_w = int(guide_w * 0.42)
-    arm_outer_half_w = int(guide_w * 0.54)
-    wrist_outer_half_w = int(guide_w * 0.52)
-    wrist_inner_half_w = int(guide_w * 0.37)
-    ear_radius_x = int(guide_w * 0.035)
-    ear_radius_y = int(guide_h * 0.055)
-    ear_y = head_center[1] + int(guide_h * 0.005)
+    neck_top_y = head_center[1] + head_radius_y - 2
+    neck_base_y = top_y + int(guide_h * 0.42)
+    shoulder_y = top_y + int(guide_h * 0.54)
+    bust_y = top_y + int(guide_h * 0.78)
+    neck_half_w = int(guide_w * 0.09)
+    shoulder_half_w = int(guide_w * 0.42)
+    bust_half_w = int(guide_w * 0.33)
+    shoulder_curve_drop = int(guide_h * 0.06)
 
     roi_pad_x = int(guide_w * 0.08)
-    roi_pad_y = int(guide_h * 0.04)
+    roi_pad_y = int(guide_h * 0.07)
     match_roi = (
         max(0, left_x - roi_pad_x),
         max(0, top_y - roi_pad_y),
@@ -670,22 +700,14 @@ def get_torso_guide_geometry(frame_w, frame_h, min_left_x=None):
         "head_center": head_center,
         "head_radius_x": head_radius_x,
         "head_radius_y": head_radius_y,
-        "ear_radius_x": ear_radius_x,
-        "ear_radius_y": ear_radius_y,
-        "ear_y": ear_y,
         "neck_top_y": neck_top_y,
         "neck_base_y": neck_base_y,
         "shoulder_y": shoulder_y,
-        "chest_y": chest_y,
-        "waist_y": waist_y,
-        "hip_y": hip_y,
-        "waist_half_w": waist_half_w,
-        "shoulder_half_w": shoulder_half_w,
+        "bust_y": bust_y,
         "neck_half_w": neck_half_w,
-        "chest_half_w": chest_half_w,
-        "arm_outer_half_w": arm_outer_half_w,
-        "wrist_outer_half_w": wrist_outer_half_w,
-        "wrist_inner_half_w": wrist_inner_half_w,
+        "shoulder_half_w": shoulder_half_w,
+        "bust_half_w": bust_half_w,
+        "shoulder_curve_drop": shoulder_curve_drop,
         "match_roi": match_roi,
     }
 
@@ -710,69 +732,38 @@ def draw_torso_guide(frame, guide_geometry, label_text="Stand inside the guide f
     )
 
     center_x = guide_geometry["center_x"]
-    left_ear_center = (
-        center_x - guide_geometry["head_radius_x"] - guide_geometry["ear_radius_x"] + 6,
-        guide_geometry["ear_y"],
-    )
-    right_ear_center = (
-        center_x + guide_geometry["head_radius_x"] + guide_geometry["ear_radius_x"] - 6,
-        guide_geometry["ear_y"],
-    )
-    cv2.ellipse(
+    cv2.line(
         frame,
-        left_ear_center,
-        (guide_geometry["ear_radius_x"], guide_geometry["ear_radius_y"]),
-        0,
-        80,
-        280,
+        (center_x - guide_geometry["neck_half_w"], guide_geometry["neck_top_y"]),
+        (center_x - guide_geometry["neck_half_w"], guide_geometry["neck_base_y"]),
         (240, 240, 240),
         3,
         cv2.LINE_AA,
     )
-    cv2.ellipse(
+    cv2.line(
         frame,
-        right_ear_center,
-        (guide_geometry["ear_radius_x"], guide_geometry["ear_radius_y"]),
-        0,
-        -100,
-        100,
+        (center_x + guide_geometry["neck_half_w"], guide_geometry["neck_top_y"]),
+        (center_x + guide_geometry["neck_half_w"], guide_geometry["neck_base_y"]),
         (240, 240, 240),
         3,
         cv2.LINE_AA,
     )
 
-    left_outline = np.array(
+    shoulder_curve = np.array(
         [
-            (center_x - guide_geometry["neck_half_w"], guide_geometry["neck_top_y"]),
-            (center_x - guide_geometry["neck_half_w"], guide_geometry["neck_base_y"]),
-            (center_x - int(guide_geometry["shoulder_half_w"] * 0.64), guide_geometry["shoulder_y"] - 14),
-            (center_x - guide_geometry["shoulder_half_w"], guide_geometry["shoulder_y"]),
-            (center_x - guide_geometry["chest_half_w"], guide_geometry["chest_y"]),
-            (center_x - guide_geometry["arm_outer_half_w"], guide_geometry["waist_y"] - 40),
-            (center_x - guide_geometry["arm_outer_half_w"], guide_geometry["waist_y"] + 28),
-            (center_x - guide_geometry["wrist_outer_half_w"], guide_geometry["hip_y"]),
-            (center_x - guide_geometry["wrist_inner_half_w"], guide_geometry["hip_y"]),
-            (center_x - guide_geometry["waist_half_w"], guide_geometry["waist_y"]),
-            (center_x - int(guide_geometry["chest_half_w"] * 0.94), guide_geometry["chest_y"] + 42),
-            (center_x - int(guide_geometry["shoulder_half_w"] * 0.58), guide_geometry["shoulder_y"] + 6),
-            (center_x - guide_geometry["neck_half_w"], guide_geometry["neck_base_y"]),
+            (center_x - guide_geometry["shoulder_half_w"], guide_geometry["shoulder_y"] + guide_geometry["shoulder_curve_drop"]),
+            (center_x - int(guide_geometry["shoulder_half_w"] * 0.66), guide_geometry["shoulder_y"] - 4),
+            (center_x - int(guide_geometry["bust_half_w"] * 0.45), guide_geometry["neck_base_y"] + 8),
+            (center_x, guide_geometry["neck_base_y"]),
+            (center_x + int(guide_geometry["bust_half_w"] * 0.45), guide_geometry["neck_base_y"] + 8),
+            (center_x + int(guide_geometry["shoulder_half_w"] * 0.66), guide_geometry["shoulder_y"] - 4),
+            (center_x + guide_geometry["shoulder_half_w"], guide_geometry["shoulder_y"] + guide_geometry["shoulder_curve_drop"]),
+            (center_x + guide_geometry["bust_half_w"], guide_geometry["bust_y"]),
+            (center_x - guide_geometry["bust_half_w"], guide_geometry["bust_y"]),
         ],
         dtype=np.int32,
     )
-    right_outline = np.array(
-        [(2 * center_x - x, y) for x, y in left_outline[::-1]],
-        dtype=np.int32,
-    )
-    cv2.polylines(frame, [left_outline], isClosed=False, color=(240, 240, 240), thickness=3, lineType=cv2.LINE_AA)
-    cv2.polylines(frame, [right_outline], isClosed=False, color=(240, 240, 240), thickness=3, lineType=cv2.LINE_AA)
-    cv2.line(
-        frame,
-        (center_x - guide_geometry["wrist_inner_half_w"], guide_geometry["hip_y"]),
-        (center_x + guide_geometry["wrist_inner_half_w"], guide_geometry["hip_y"]),
-        (240, 240, 240),
-        3,
-        cv2.LINE_AA,
-    )
+    cv2.polylines(frame, [shoulder_curve], isClosed=True, color=(240, 240, 240), thickness=3, lineType=cv2.LINE_AA)
 
     cv2.putText(
         frame,
@@ -1024,42 +1015,14 @@ def extract_match_region(frame, guide_geometry):
 
 def draw_wait_for_start_screen(frame_shape, careers, layout_config, distance_cm=None, is_in_range=False):
     frame = np.zeros(frame_shape, dtype=np.uint8)
-    frame_h, frame_w = frame.shape[:2]
-    title = "Select your quantum future"
     status_text = get_presence_status_text(distance_cm, is_in_range)
-
-    title_scale = 0.98
-    title_size, _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, title_scale, 3)
-    title_x = (frame_w - title_size[0]) // 2
-    title_y = frame_h // 2 - 120
-    cv2.putText(
-        frame,
-        title,
-        (title_x, title_y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        title_scale,
-        (255, 255, 255),
-        3,
-        cv2.LINE_AA,
-    )
-
     status_lines = wrap_text(status_text, 40)
-    status_y = title_y + 52
     status_color = (0, 220, 0) if is_in_range else (200, 200, 200) if distance_cm is None else (0, 180, 255)
-    for line_index, line in enumerate(status_lines[:2]):
-        line_size, _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.66, 2)
-        line_x = (frame_w - line_size[0]) // 2
-        cv2.putText(
-            frame,
-            line,
-            (line_x, status_y + line_index * 32),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.66,
-            status_color,
-            2,
-            cv2.LINE_AA,
-        )
-
+    draw_centered_screen_title(
+        frame,
+        "Select your quantum future",
+        [(line, status_color) for line in status_lines[:2]],
+    )
     draw_static_career_buttons(frame, careers, layout_config)
     return frame
 
@@ -1311,7 +1274,7 @@ def main():
         smoothing_alpha=0.25,
         cursor_radius=10,
         button_labels=careers,
-        header_text="Choose a quantum career to begin",
+        header_text="",
         layout_config=ui_layout_config,
     )
 
@@ -1353,7 +1316,7 @@ def main():
         reset_requested = False
         presence_in_range_since_t = None
         last_in_range_t = None
-        ui.set_buttons(careers, "Choose a quantum career to begin")
+        ui.set_buttons(careers, "")
         ui.set_layout_config(ui_layout_config)
 
     try:
@@ -1444,10 +1407,16 @@ def main():
                     last_in_range_t = now
                 continue
 
+            active_presence_loss_timeout = (
+                MATCHING_SCREEN_LOSS_TIMEOUT_SECONDS
+                if state == STATE_MATCHING
+                else PRESENCE_LOSS_TIMEOUT_SECONDS
+            )
+
             # For all active states: update presence keep-alive; reset if person has left.
             if keep_awake_in_range:
                 last_in_range_t = now
-            elif last_in_range_t is not None and now - last_in_range_t >= PRESENCE_LOSS_TIMEOUT_SECONDS:
+            elif last_in_range_t is not None and now - last_in_range_t >= active_presence_loss_timeout:
                 reset_to_wait_for_start()
                 continue
 
@@ -1467,7 +1436,7 @@ def main():
                     selected_career = None
                     matched_professional = None
                     matched_test_name = None
-                    ui.set_buttons(careers, "Choose a quantum career to begin")
+                    ui.set_buttons(careers, "")
                     ui.set_layout_config(ui_layout_config)
                 continue
 
@@ -1476,8 +1445,7 @@ def main():
                 tip_norm = tracker.get_index_tip_norm(hand_tracking_frame)
                 ui.update_cursor_from_norm(tip_norm, w, h)
                 events = ui.update_and_draw(display_frame)
-                guide_geometry = get_torso_guide_geometry(w, h)
-                draw_torso_guide(display_frame, guide_geometry)
+                draw_centered_screen_title(display_frame, "Use your finger to\nselect your quantum future")
                 state_changed = False
                 for event in events:
                     normalized_event = event.lower()
@@ -1494,13 +1462,14 @@ def main():
                         if not allowed_professional_ids:
                             matching_status = f"No professionals exist for {selected_career}."
                         last_match_t = 0.0
+                        last_in_range_t = now
                         state_changed = True
                         break
 
                 if state_changed:
                     draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
             elif state == STATE_MATCHING:
-                guide_geometry = get_torso_guide_geometry(w, h)
+                guide_geometry = get_torso_guide_geometry(w, h, ui_layout_config, mode="matching")
                 draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
 
                 # Submit a new embedding job every MATCH_INTERVAL_SECONDS.
@@ -1549,7 +1518,7 @@ def main():
                 state = STATE_SELECT_CAREER
                 selected_career = None
                 ui.set_layout_config(ui_layout_config)
-                ui.set_buttons(careers, "Choose a quantum career to begin")
+                ui.set_buttons(careers, "")
     finally:
         cap.release()
         tof_stop_event.set()

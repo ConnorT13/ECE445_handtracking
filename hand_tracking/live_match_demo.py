@@ -28,6 +28,7 @@ from hand_tracking.database.db_operations import (
     get_all_professionals,
     get_professionals_by_quantum_area,
 )
+from hand_tracking.database.image_paths import resolve_image_path
 from hand_tracking.matching.embedder import create_embedder
 from hand_tracking.matching.match import find_best_database_matches
 
@@ -880,6 +881,7 @@ _image_cache = OrderedDict()
 
 
 def draw_profile_image(frame, image_path, x, y, width, height):
+    image_path = resolve_image_path(image_path)
     if not image_path or not os.path.exists(image_path):
         cv2.rectangle(frame, (x, y), (x + width, y + height), (55, 55, 55), thickness=-1)
         cv2.rectangle(frame, (x, y), (x + width, y + height), (210, 210, 210), thickness=2)

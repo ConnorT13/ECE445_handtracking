@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Cursor Drawing and Hover UI Software Design</title>
+  <desc id="desc">Software flow for converting camera frames into a hand-controlled cursor, hover dwell selection, and career selection events.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .title { font: 700 42px Arial, Helvetica, sans-serif; fill: #172033; letter-spacing: 0; }
+      .subtitle { font: 400 20px Arial, Helvetica, sans-serif; fill: #536176; letter-spacing: 0; }
+      .section { font: 700 22px Arial, Helvetica, sans-serif; fill: #273449; letter-spacing: 0; }
+      .label { font: 700 21px Arial, Helvetica, sans-serif; fill: #1f2937; letter-spacing: 0; }
+      .body { font: 400 16px Arial, Helvetica, sans-serif; fill: #405064; letter-spacing: 0; }
+      .small { font: 400 14px Arial, Helvetica, sans-serif; fill: #607086; letter-spacing: 0; }
+      .caption { font: 700 13px Arial, Helvetica, sans-serif; fill: #38465a; letter-spacing: 0; }
+      .lane { fill: #ffffff; stroke-width: 2; rx: 8; }
+      .input { stroke: #5b8def; }
+      .compute { stroke: #20a66b; }
+      .ui { stroke: #d97706; }
+      .event { stroke: #7857ff; }
+      .soft { fill: #eef3f8; stroke: #c4d1df; stroke-width: 2; rx: 8; }
+      .box { fill: #ffffff; stroke-width: 2.5; rx: 8; }
+      .pill { fill: #f5f8fc; stroke: #bac8d8; stroke-width: 1.5; rx: 16; }
+      .frame { fill: #101820; stroke: #38465a; stroke-width: 2; rx: 8; }
+      .screen { fill: #18212f; stroke: #6f7e91; stroke-width: 2; rx: 8; }
+      .button { fill: #303946; stroke: #d7dee8; stroke-width: 2; rx: 5; }
+      .button-hot { fill: #4d5a6b; stroke: #ffd166; stroke-width: 3; rx: 5; }
+      .cursor { fill: #1ec96b; stroke: #d6ffe6; stroke-width: 4; }
+      .progress { fill: none; stroke: #ffd166; stroke-width: 9; stroke-linecap: round; }
+      .arrow { fill: none; stroke: #41516a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowhead); }
+      .arrow-green { fill: none; stroke: #16845b; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowGreen); }
+      .arrow-orange { fill: none; stroke: #b45f06; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowOrange); }
+      .arrow-purple { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowPurple); }
+      .dash { stroke-dasharray: 8 8; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#41516a"/></marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#16845b"/></marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#b45f06"/></marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#6d4aff"/></marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title" x="70" y="74">Cursor Drawing and Hover UI</text>
+  <text class="subtitle" x="70" y="108">Per-frame hand tracking turns an index fingertip into a smoothed cursor and dwell-based career selection.</text>
+
+  <rect class="soft" x="70" y="155" width="340" height="645"/>
+  <text class="section" x="100" y="195">Camera and Display Frame</text>
+  <rect class="frame" x="120" y="245" width="240" height="340"/>
+  <path d="M164 405 C190 330, 290 330, 316 405" fill="none" stroke="#8ad7ff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="240" cy="356" r="26" fill="#8ad7ff"/>
+  <circle cx="292" cy="456" r="16" fill="#1ec96b"/>
+  <text class="body" x="120" y="625">OpenCV captures each frame,</text>
+  <text class="body" x="120" y="650">mirrors it for the user,</text>
+  <text class="body" x="120" y="675">then maps it to portrait canvas.</text>
+  <rect class="pill" x="120" y="710" width="118" height="34"/>
+  <text class="caption" x="141" y="732">BGR frame</text>
+  <rect class="pill" x="250" y="710" width="110" height="34"/>
+  <text class="caption" x="267" y="732">720x1280</text>
+
+  <rect class="box input" x="500" y="170" width="250" height="118"/>
+  <text class="label" x="530" y="208">Frame Prep</text>
+  <text class="body" x="530" y="240">flip, crop, rotate</text>
+  <text class="small" x="530" y="264">shared by UI and matcher</text>
+
+  <rect class="box compute" x="500" y="360" width="250" height="150"/>
+  <text class="label" x="530" y="398">HandTracker</text>
+  <text class="body" x="530" y="430">MediaPipe Hands</text>
+  <text class="body" x="530" y="456">landmark 8 fingertip</text>
+  <text class="small" x="530" y="484">returns (x_norm, y_norm)</text>
+
+  <rect class="box compute" x="500" y="595" width="250" height="132"/>
+  <text class="label" x="530" y="633">Cursor Mapping</text>
+  <text class="body" x="530" y="665">scale to frame pixels</text>
+  <text class="body" x="530" y="691">smooth and clamp</text>
+
+  <rect class="box ui" x="850" y="170" width="280" height="118"/>
+  <text class="label" x="880" y="208">Layout</text>
+  <text class="body" x="880" y="240">safe area and buttons</text>
+  <text class="small" x="880" y="264">career labels from database</text>
+
+  <rect class="box ui" x="850" y="360" width="280" height="150"/>
+  <text class="label" x="880" y="398">HoverSelectUI</text>
+  <text class="body" x="880" y="430">hit-test cursor on buttons</text>
+  <text class="body" x="880" y="456">track hover start time</text>
+  <text class="small" x="880" y="484">1.5 s dwell threshold</text>
+
+  <rect class="box ui" x="850" y="595" width="280" height="132"/>
+  <text class="label" x="880" y="633">Draw Overlay</text>
+  <text class="body" x="880" y="665">buttons, cursor, progress</text>
+  <text class="body" x="880" y="691">FPS and header text</text>
+
+  <rect class="soft" x="1220" y="165" width="300" height="575"/>
+  <text class="section" x="1250" y="205">Mirror UI Output</text>
+  <rect class="screen" x="1270" y="255" width="200" height="320"/>
+  <rect class="button" x="1300" y="310" width="140" height="44"/>
+  <rect class="button-hot" x="1300" y="377" width="140" height="44"/>
+  <rect class="button" x="1300" y="444" width="140" height="44"/>
+  <circle class="cursor" cx="1416" cy="399" r="13"/>
+  <path class="progress" d="M1416 359 A40 40 0 1 1 1452 415"/>
+  <text class="small" x="1308" y="338" fill="#f5f8fc">Quantum Scientist</text>
+  <text class="small" x="1308" y="405" fill="#f5f8fc">Quantum Engineer</text>
+  <text class="small" x="1308" y="472" fill="#f5f8fc">Quantum Student</text>
+  <rect class="box event" x="1258" y="625" width="224" height="72"/>
+  <text class="label" x="1284" y="656">UI Event</text>
+  <text class="body" x="1284" y="682">selected:&lt;career&gt;</text>
+
+  <path class="arrow" d="M410 405 C450 405, 455 229, 496 229"/>
+  <path class="arrow-green" d="M625 288 L625 356"/>
+  <path class="arrow-green" d="M625 510 L625 591"/>
+  <path class="arrow-orange" d="M750 661 C795 661, 800 435, 846 435"/>
+  <path class="arrow-orange" d="M1130 435 C1180 435, 1205 405, 1266 405"/>
+  <path class="arrow-orange" d="M990 288 L990 356"/>
+  <path class="arrow-orange" d="M990 510 L990 591"/>
+  <path class="arrow-purple" d="M1370 575 L1370 621"/>
+  <path class="arrow-purple dash" d="M1258 662 C1160 662, 1115 760, 1008 760 C800 760, 700 785, 620 730"/>
+
+  <rect class="pill" x="782" y="405" width="64" height="34"/>
+  <text class="caption" x="797" y="427">tip xy</text>
+  <rect class="pill" x="1146" y="394" width="76" height="34"/>
+  <text class="caption" x="1163" y="416">draw</text>
+  <rect class="pill" x="1060" y="744" width="144" height="34"/>
+  <text class="caption" x="1077" y="766">state to MATCHING</text>
+
+  <text class="small" x="70" y="845">Key code: hand_tracking/UI_Cursor/hand_tracker.py and user_interface.py, orchestrated by live_match_demo.py.</text>
+</svg>

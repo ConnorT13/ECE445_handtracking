@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Smart Mirror Software Design</title>
+  <desc id="desc">Slide-ready architecture diagram for the ECE445 smart mirror software showing sensing inputs, the Raspberry Pi runtime, data stores, and MCU firmware coordination.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .title { font: 700 40px Arial, Helvetica, sans-serif; fill: #172033; letter-spacing: 0; }
+      .subtitle { font: 400 19px Arial, Helvetica, sans-serif; fill: #536176; letter-spacing: 0; }
+      .lane-title { font: 700 22px Arial, Helvetica, sans-serif; fill: #263145; letter-spacing: 0; }
+      .label { font: 700 18px Arial, Helvetica, sans-serif; fill: #1f2937; letter-spacing: 0; }
+      .body { font: 400 15px Arial, Helvetica, sans-serif; fill: #3f4c5f; letter-spacing: 0; }
+      .small { font: 400 13px Arial, Helvetica, sans-serif; fill: #536176; letter-spacing: 0; }
+      .caption { font: 700 12px Arial, Helvetica, sans-serif; fill: #2d3748; letter-spacing: 0; }
+      .lane { stroke-width: 2; rx: 8; }
+      .input-lane { fill: #eef3f8; stroke: #c4d1df; }
+      .pi-lane { fill: #ecf7f4; stroke: #9ccdc0; }
+      .data-lane { fill: #f2efff; stroke: #b8abe6; }
+      .mcu-lane { fill: #fff2e4; stroke: #e3ae69; }
+      .box { fill: #ffffff; stroke-width: 2.4; rx: 8; }
+      .blue { stroke: #5b8def; }
+      .green { stroke: #20a66b; }
+      .orange { stroke: #d97706; }
+      .purple { stroke: #7857ff; }
+      .gray { stroke: #94a3b8; }
+      .state-pill { fill: #ffffff; stroke: #9ccdc0; stroke-width: 1.5; rx: 14; }
+      .protocol-pill { fill: #fff7ed; stroke: #d97706; stroke-width: 1.5; rx: 14; }
+      .queue-pill { fill: #eef6ff; stroke: #5b8def; stroke-width: 1.5; rx: 14; }
+      .arrow { fill: none; stroke: #41516a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowhead); }
+      .arrow-light { fill: none; stroke: #718096; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowheadLight); }
+      .arrow-green { fill: none; stroke: #16845b; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowheadGreen); }
+      .arrow-orange { fill: none; stroke: #b45f06; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowheadOrange); }
+      .arrow-purple { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowheadPurple); }
+      .dash { stroke-dasharray: 7 7; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#41516a"/>
+    </marker>
+    <marker id="arrowheadLight" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#718096"/>
+    </marker>
+    <marker id="arrowheadGreen" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#16845b"/>
+    </marker>
+    <marker id="arrowheadOrange" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#b45f06"/>
+    </marker>
+    <marker id="arrowheadPurple" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#6d4aff"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="900"/>
+  <text class="title" x="70" y="70">Smart Mirror Software Design</text>
+  <text class="subtitle" x="70" y="102">Presence-gated hand interaction, face matching, and profile display coordinated across the Pi and MCU</text>
+
+  <rect class="lane input-lane" x="60" y="145" width="250" height="670"/>
+  <text class="lane-title" x="88" y="185">Sensing Inputs</text>
+
+  <rect class="lane pi-lane" x="350" y="145" width="700" height="670"/>
+  <text class="lane-title" x="378" y="185">Raspberry Pi Runtime</text>
+  <text class="small" x="378" y="210">hand_tracking/live_match_demo.py owns session state, background workers, queues, and display rendering</text>
+
+  <rect class="lane data-lane" x="1090" y="145" width="220" height="670"/>
+  <text class="lane-title" x="1118" y="185">Data &amp; Models</text>
+
+  <rect class="lane mcu-lane" x="1350" y="145" width="190" height="670"/>
+  <text class="lane-title" x="1378" y="185">MCU Firmware</text>
+
+  <rect class="box blue" x="90" y="235" width="190" height="100"/>
+  <text class="label" x="116" y="266">Camera</text>
+  <text class="body" x="116" y="296">OpenCV frame stream</text>
+  <text class="small" x="116" y="318">mirror view, crop, rotate</text>
+
+  <rect class="box orange" x="90" y="415" width="190" height="104"/>
+  <text class="label" x="116" y="446">Presence</text>
+  <text class="body" x="116" y="476">Pi ToF / face distance</text>
+  <text class="small" x="116" y="498">wake and sleep thresholds</text>
+
+  <rect class="box green" x="90" y="595" width="190" height="100"/>
+  <text class="label" x="116" y="626">Hand Gesture</text>
+  <text class="body" x="116" y="656">index fingertip cursor</text>
+  <text class="small" x="116" y="678">hover selection</text>
+
+  <rect class="box orange" x="380" y="240" width="640" height="102"/>
+  <text class="label" x="410" y="273">App Coordinator and Session State Machine</text>
+  <text class="body" x="410" y="303">standby-first flow: wait for start, show intro, select career, match face, render profile</text>
+  <rect class="state-pill" x="410" y="316" width="72" height="28"/>
+  <text class="caption" x="428" y="335">WAIT</text>
+  <rect class="state-pill" x="494" y="316" width="76" height="28"/>
+  <text class="caption" x="512" y="335">INTRO</text>
+  <rect class="state-pill" x="582" y="316" width="88" height="28"/>
+  <text class="caption" x="599" y="335">SELECT</text>
+  <rect class="state-pill" x="682" y="316" width="94" height="28"/>
+  <text class="caption" x="699" y="335">MATCH</text>
+  <rect class="state-pill" x="788" y="316" width="92" height="28"/>
+  <text class="caption" x="804" y="335">PROFILE</text>
+
+  <rect class="box blue" x="380" y="395" width="190" height="112"/>
+  <text class="label" x="406" y="426">Frame Prep</text>
+  <text class="body" x="406" y="456">flip, rotate, crop</text>
+  <text class="small" x="406" y="480">720 x 1280 portrait canvas</text>
+
+  <rect class="box green" x="610" y="395" width="190" height="112"/>
+  <text class="label" x="636" y="426">HandTracker</text>
+  <text class="body" x="636" y="456">MediaPipe landmarks</text>
+  <text class="small" x="636" y="480">smoothed cursor position</text>
+
+  <rect class="box green" x="840" y="395" width="180" height="112"/>
+  <text class="label" x="864" y="426">HoverSelectUI</text>
+  <text class="body" x="864" y="456">dwell timer buttons</text>
+  <text class="small" x="864" y="480">career choice gates match</text>
+
+  <rect class="box purple" x="380" y="565" width="280" height="120"/>
+  <text class="label" x="406" y="596">Embedding Worker</text>
+  <text class="body" x="406" y="626">InsightFace face vector</text>
+  <text class="small" x="406" y="650">MediaPipe fallback available</text>
+  <text class="small" x="406" y="672">runs off the UI path</text>
+
+  <rect class="box purple" x="740" y="565" width="280" height="120"/>
+  <text class="label" x="766" y="596">Match Engine</text>
+  <text class="body" x="766" y="626">cosine similarity top-k</text>
+  <text class="small" x="766" y="650">filters by selected career</text>
+  <text class="small" x="766" y="672">returns ranked profiles</text>
+
+  <rect class="box gray" x="540" y="725" width="320" height="64"/>
+  <text class="label" x="568" y="755">Profile Renderer</text>
+  <text class="body" x="568" y="779">draws matched professional on mirror</text>
+
+  <rect class="queue-pill" x="664" y="590" width="74" height="28"/>
+  <text class="caption" x="683" y="609">queue</text>
+
+  <rect class="box purple" x="1120" y="240" width="160" height="116"/>
+  <text class="label" x="1144" y="270">SQLite DB</text>
+  <text class="body" x="1144" y="300">professionals</text>
+  <text class="body" x="1144" y="323">profile_tags</text>
+  <text class="body" x="1144" y="346">face_embeddings</text>
+
+  <rect class="box purple" x="1120" y="430" width="160" height="100"/>
+  <text class="label" x="1144" y="460">Model Files</text>
+  <text class="body" x="1144" y="490">InsightFace ONNX</text>
+  <text class="small" x="1144" y="512">MediaPipe tasks</text>
+
+  <rect class="box purple" x="1120" y="615" width="160" height="100"/>
+  <text class="label" x="1144" y="645">Profile Assets</text>
+  <text class="body" x="1144" y="675">headshots</text>
+  <text class="small" x="1144" y="697">bio text and fun facts</text>
+
+  <rect class="box orange" x="1375" y="240" width="140" height="116"/>
+  <text class="label" x="1399" y="270">FSM</text>
+  <text class="body" x="1399" y="300">IDLE</text>
+  <text class="body" x="1399" y="323">SCANNING</text>
+  <text class="body" x="1399" y="346">DISPLAYED</text>
+
+  <rect class="box orange" x="1375" y="430" width="140" height="100"/>
+  <text class="label" x="1399" y="460">HAL</text>
+  <text class="body" x="1399" y="490">ToF read</text>
+  <text class="small" x="1399" y="512">SoftwareSerial UART</text>
+
+  <rect class="box orange" x="1375" y="615" width="140" height="100"/>
+  <text class="label" x="1399" y="645">LED Strip</text>
+  <text class="body" x="1399" y="675">match cue</text>
+
+  <path class="arrow" d="M280 285 C320 285, 338 430, 376 450"/>
+  <path class="arrow-orange" d="M280 467 C322 467, 335 291, 376 291"/>
+  <path class="arrow-green" d="M280 645 C332 645, 346 451, 606 451"/>
+  <path class="arrow-light" d="M570 451 L606 451"/>
+  <path class="arrow-green" d="M800 451 L836 451"/>
+  <path class="arrow-green" d="M930 507 L930 561"/>
+  <path class="arrow-purple" d="M660 625 L736 625"/>
+  <path class="arrow-light" d="M880 685 C864 704, 842 718, 820 725"/>
+  <path class="arrow-light" d="M1020 625 C1064 625, 1074 300, 1116 298"/>
+  <path class="arrow-purple dash" d="M520 565 C566 518, 1074 486, 1116 482"/>
+  <path class="arrow-light" d="M860 757 C946 757, 1034 666, 1116 665"/>
+  <path class="arrow-orange" d="M1280 488 L1371 488"/>
+  <path class="arrow-orange" d="M1445 356 L1445 426"/>
+  <path class="arrow-orange" d="M1445 530 L1445 611"/>
+  <path class="arrow-orange" d="M1020 291 C1152 291, 1245 291, 1371 291"/>
+  <path class="arrow-orange dash" d="M1375 320 C1255 336, 1158 394, 1024 565"/>
+
+  <rect class="protocol-pill" x="1278" y="274" width="104" height="28"/>
+  <text class="caption" x="1298" y="293">PRESENCE</text>
+  <rect class="protocol-pill" x="1284" y="474" width="76" height="28"/>
+  <text class="caption" x="1303" y="493">RESET</text>
+  <rect class="protocol-pill" x="1284" y="628" width="74" height="28"/>
+  <text class="caption" x="1301" y="647">MATCH</text>
+
+  <text class="small" x="380" y="840">Design principle: the UI stays responsive while face embedding and matching run asynchronously.</text>
+  <text class="small" x="910" y="840">UART protocol keeps the Pi session and MCU display cue in sync.</text>
+</svg>

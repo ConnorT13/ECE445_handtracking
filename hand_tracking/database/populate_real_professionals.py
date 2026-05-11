@@ -1,15 +1,14 @@
-import os
 import sqlite3
 
 from hand_tracking.database.db_init import get_database_path, initialize_database
+from hand_tracking.database.image_paths import database_image_path
 from hand_tracking.database.db_operations import add_professional, add_tag_to_professional
 
-IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
 QUANTUM_BUILDER_CAREER = "Quantum Builder"
 
 
 def _image(filename):
-    return os.path.join(IMAGES_DIR, filename)
+    return database_image_path(filename)
 
 
 REAL_PROFESSIONALS = [
@@ -149,13 +148,26 @@ def _professional_exists(name):
     return row[0] if row else None
 
 
+def _update_existing_image_path(professional_id, image_path):
+    db_path = get_database_path()
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute(
+        "UPDATE professionals SET image_path = ? WHERE id = ?",
+        (image_path, professional_id),
+    )
+    connection.commit()
+    connection.close()
+
+
 def populate():
     initialize_database()
 
     for p in REAL_PROFESSIONALS:
         existing_id = _professional_exists(p["name"])
         if existing_id is not None:
-            print(f"  SKIP  {p['name']} (already in DB, id={existing_id})")
+            _update_existing_image_path(existing_id, p["image_path"])
+            print(f"  UPDATE {p['name']} (already in DB, id={existing_id}) image_path={p['image_path']}")
             continue
 
         prof_id = add_professional(

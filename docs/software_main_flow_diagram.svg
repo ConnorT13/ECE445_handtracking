@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Smart Mirror Main Software Flow</title>
+  <desc id="desc">High-level software flow connecting presence detection, cursor-based career selection, face matching, profile display, and MCU coordination.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .title { font: 700 42px Arial, Helvetica, sans-serif; fill: #172033; letter-spacing: 0; }
+      .subtitle { font: 400 20px Arial, Helvetica, sans-serif; fill: #536176; letter-spacing: 0; }
+      .label { font: 700 20px Arial, Helvetica, sans-serif; fill: #1f2937; letter-spacing: 0; }
+      .body { font: 400 16px Arial, Helvetica, sans-serif; fill: #405064; letter-spacing: 0; }
+      .small { font: 400 14px Arial, Helvetica, sans-serif; fill: #607086; letter-spacing: 0; }
+      .caption { font: 700 13px Arial, Helvetica, sans-serif; fill: #38465a; letter-spacing: 0; }
+      .box { fill: #ffffff; stroke-width: 2.5; rx: 8; }
+      .presence { stroke: #d97706; }
+      .ui { stroke: #20a66b; }
+      .match { stroke: #7857ff; }
+      .display { stroke: #5b8def; }
+      .mcu { stroke: #b45f06; }
+      .db { fill: #f2efff; stroke: #7857ff; stroke-width: 2; rx: 8; }
+      .phase { fill: #eef3f8; stroke: #c4d1df; stroke-width: 2; rx: 8; }
+      .arrow { fill: none; stroke: #41516a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowhead); }
+      .arrow-green { fill: none; stroke: #16845b; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowGreen); }
+      .arrow-purple { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowPurple); }
+      .arrow-orange { fill: none; stroke: #b45f06; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowOrange); }
+      .arrow-blue { fill: none; stroke: #346dcc; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowBlue); }
+      .dash { stroke-dasharray: 8 8; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#41516a"/></marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#16845b"/></marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#6d4aff"/></marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#b45f06"/></marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#346dcc"/></marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title" x="70" y="74">Main Software Flow</text>
+  <text class="subtitle" x="70" y="108">High-level runtime path across the Pi UI, face-matching worker, database, and MCU firmware.</text>
+
+  <rect class="phase" x="70" y="170" width="1460" height="500"/>
+  <text class="caption" x="102" y="208">END-TO-END SESSION</text>
+
+  <rect class="box presence" x="115" y="275" width="190" height="120"/>
+  <text class="label" x="145" y="313">Presence</text>
+  <text class="body" x="145" y="345">Pi ToF / face</text>
+  <text class="body" x="145" y="371">or MCU ToF</text>
+
+  <rect class="box display" x="365" y="275" width="190" height="120"/>
+  <text class="label" x="395" y="313">Intro</text>
+  <text class="body" x="395" y="345">wake mirror</text>
+  <text class="body" x="395" y="371">explain context</text>
+
+  <rect class="box ui" x="615" y="275" width="220" height="120"/>
+  <text class="label" x="645" y="313">Career UI</text>
+  <text class="body" x="645" y="345">hand cursor</text>
+  <text class="body" x="645" y="371">hover select</text>
+
+  <rect class="box match" x="895" y="275" width="220" height="120"/>
+  <text class="label" x="925" y="313">Face Match</text>
+  <text class="body" x="925" y="345">embedding worker</text>
+  <text class="body" x="925" y="371">rank candidates</text>
+
+  <rect class="box display" x="1175" y="275" width="220" height="120"/>
+  <text class="label" x="1205" y="313">Profile</text>
+  <text class="body" x="1205" y="345">matched person</text>
+  <text class="body" x="1205" y="371">bio and score</text>
+
+  <path class="arrow-orange" d="M305 335 L361 335"/>
+  <path class="arrow-blue" d="M555 335 L611 335"/>
+  <path class="arrow-green" d="M835 335 L891 335"/>
+  <path class="arrow-purple" d="M1115 335 L1171 335"/>
+
+  <rect class="db" x="900" y="500" width="210" height="100"/>
+  <text class="label" x="930" y="538">SQLite DB</text>
+  <text class="body" x="930" y="570">profiles, tags,</text>
+  <text class="body" x="930" y="594">face embeddings</text>
+
+  <rect class="box mcu" x="120" y="500" width="250" height="100"/>
+  <text class="label" x="150" y="538">MCU FSM</text>
+  <text class="body" x="150" y="570">presence, MATCH, RESET</text>
+  <text class="small" x="150" y="594">controls LED cue timing</text>
+
+  <path class="arrow-purple" d="M1005 395 L1005 496"/>
+  <path class="arrow-purple dash" d="M1110 520 C1180 485, 1215 418, 1278 398"/>
+
+  <path class="arrow-orange dash" d="M245 500 L210 399"/>
+  <path class="arrow-orange dash" d="M1005 395 C925 675, 455 690, 365 570"/>
+  <rect class="box mcu" x="1210" y="505" width="150" height="70"/>
+  <text class="label" x="1245" y="548">LED Cue</text>
+  <path class="arrow-orange" d="M365 600 C555 645, 1010 648, 1208 565"/>
+
+  <rect class="box display" x="540" y="715" width="520" height="70"/>
+  <text class="label" x="600" y="758">Reset, Return to Selection, or Sleep on Presence Loss</text>
+  <path class="arrow dash" d="M1285 395 C1410 500, 1280 735, 1064 735"/>
+  <path class="arrow dash" d="M540 750 C390 750, 225 625, 210 399"/>
+
+  <rect class="box presence" x="420" y="505" width="142" height="54"/>
+  <text class="caption" x="452" y="537">PRESENCE</text>
+  <rect class="box match" x="675" y="615" width="118" height="54"/>
+  <text class="caption" x="703" y="647">MATCH</text>
+  <rect class="box display" x="1384" y="505" width="106" height="54"/>
+  <text class="caption" x="1412" y="537">RESET</text>
+
+  <path class="arrow-orange" d="M365 532 L416 532"/>
+  <path class="arrow-orange" d="M1360 540 L1380 532"/>
+
+  <text class="small" x="70" y="845">The detailed diagrams break this flow into cursor/UI, face matching, and MCU firmware responsibilities.</text>
+</svg>

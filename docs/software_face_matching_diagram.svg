@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Facial Embedding and Database Matching Software Design</title>
+  <desc id="desc">Software flow for selected career filtering, asynchronous face embedding, cosine matching against SQLite embeddings, and profile rendering.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .title { font: 700 42px Arial, Helvetica, sans-serif; fill: #172033; letter-spacing: 0; }
+      .subtitle { font: 400 20px Arial, Helvetica, sans-serif; fill: #536176; letter-spacing: 0; }
+      .lane-title { font: 700 22px Arial, Helvetica, sans-serif; fill: #263145; letter-spacing: 0; }
+      .label { font: 700 20px Arial, Helvetica, sans-serif; fill: #1f2937; letter-spacing: 0; }
+      .body { font: 400 16px Arial, Helvetica, sans-serif; fill: #405064; letter-spacing: 0; }
+      .small { font: 400 14px Arial, Helvetica, sans-serif; fill: #607086; letter-spacing: 0; }
+      .caption { font: 700 13px Arial, Helvetica, sans-serif; fill: #38465a; letter-spacing: 0; }
+      .lane { stroke-width: 2; rx: 8; }
+      .app-lane { fill: #eef6ff; stroke: #acc9ec; }
+      .worker-lane { fill: #ecf7f4; stroke: #9ccdc0; }
+      .data-lane { fill: #f2efff; stroke: #b8abe6; }
+      .output-lane { fill: #fff2e4; stroke: #e3ae69; }
+      .box { fill: #ffffff; stroke-width: 2.5; rx: 8; }
+      .blue { stroke: #5b8def; }
+      .green { stroke: #20a66b; }
+      .purple { stroke: #7857ff; }
+      .orange { stroke: #d97706; }
+      .gray { stroke: #94a3b8; }
+      .queue { fill: #ffffff; stroke: #5b8def; stroke-width: 2.5; rx: 30; }
+      .db { fill: #ffffff; stroke: #7857ff; stroke-width: 2.5; }
+      .arrow { fill: none; stroke: #41516a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowhead); }
+      .arrow-blue { fill: none; stroke: #346dcc; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowBlue); }
+      .arrow-green { fill: none; stroke: #16845b; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowGreen); }
+      .arrow-purple { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowPurple); }
+      .arrow-orange { fill: none; stroke: #b45f06; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowOrange); }
+      .dash { stroke-dasharray: 8 8; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#41516a"/></marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#346dcc"/></marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#16845b"/></marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#6d4aff"/></marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#b45f06"/></marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title" x="70" y="74">Facial Embedding and Database Matching</text>
+  <text class="subtitle" x="70" y="108">The UI submits lightweight jobs; a background worker embeds faces and ranks enrolled professional profiles.</text>
+
+  <rect class="lane app-lane" x="60" y="155" width="360" height="650"/>
+  <text class="lane-title" x="88" y="195">Main UI Thread</text>
+
+  <rect class="lane worker-lane" x="465" y="155" width="430" height="650"/>
+  <text class="lane-title" x="493" y="195">Embedding Worker</text>
+
+  <rect class="lane data-lane" x="940" y="155" width="310" height="650"/>
+  <text class="lane-title" x="968" y="195">Database and Models</text>
+
+  <rect class="lane output-lane" x="1295" y="155" width="245" height="650"/>
+  <text class="lane-title" x="1323" y="195">Outputs</text>
+
+  <rect class="box blue" x="95" y="245" width="290" height="108"/>
+  <text class="label" x="125" y="282">Career Selected</text>
+  <text class="body" x="125" y="314">hover event chooses area</text>
+  <text class="small" x="125" y="338">example: Quantum Engineer</text>
+
+  <rect class="box blue" x="95" y="405" width="290" height="120"/>
+  <text class="label" x="125" y="442">Frame Region</text>
+  <text class="body" x="125" y="474">current display/camera frame</text>
+  <text class="small" x="125" y="500">submitted every 1.5 s</text>
+
+  <rect class="queue" x="110" y="600" width="260" height="72"/>
+  <text class="label" x="155" y="631">EmbedJob Queue</text>
+  <text class="small" x="150" y="654">frame + allowed IDs</text>
+
+  <rect class="box green" x="505" y="245" width="350" height="118"/>
+  <text class="label" x="535" y="282">Face Detection</text>
+  <text class="body" x="535" y="314">InsightFace locates faces</text>
+  <text class="small" x="535" y="338">largest face becomes primary</text>
+
+  <rect class="box green" x="505" y="420" width="350" height="126"/>
+  <text class="label" x="535" y="457">Embedding</text>
+  <text class="body" x="535" y="489">normed identity vector</text>
+  <text class="small" x="535" y="515">MediaPipe landmark fallback exists</text>
+
+  <rect class="box green" x="505" y="620" width="350" height="112"/>
+  <text class="label" x="535" y="657">Rank Matches</text>
+  <text class="body" x="535" y="689">cosine similarity top-k</text>
+  <text class="small" x="535" y="713">returns profile rows and scores</text>
+
+  <rect class="box purple" x="975" y="235" width="240" height="118"/>
+  <text class="label" x="1005" y="272">Model Files</text>
+  <text class="body" x="1005" y="304">InsightFace ONNX</text>
+  <text class="small" x="1005" y="328">buffalo_sc pack</text>
+
+  <path class="db" d="M975 438 C975 414, 1215 414, 1215 438 L1215 638 C1215 662, 975 662, 975 638 Z"/>
+  <path class="db" d="M975 438 C975 462, 1215 462, 1215 438"/>
+  <text class="label" x="1005" y="500">SQLite mirror.db</text>
+  <text class="body" x="1005" y="536">professionals</text>
+  <text class="body" x="1005" y="564">profile_tags</text>
+  <text class="body" x="1005" y="592">face_embeddings</text>
+  <text class="small" x="1005" y="624">filtered by selected career</text>
+
+  <rect class="box orange" x="1325" y="285" width="185" height="118"/>
+  <text class="label" x="1353" y="322">Profile View</text>
+  <text class="body" x="1353" y="354">headshot, bio,</text>
+  <text class="body" x="1353" y="380">match score</text>
+
+  <rect class="box orange" x="1325" y="505" width="185" height="118"/>
+  <text class="label" x="1353" y="542">UART</text>
+  <text class="body" x="1353" y="574">send MATCH</text>
+  <text class="small" x="1353" y="598">MCU cue sync</text>
+
+  <path class="arrow-blue" d="M240 353 L240 401"/>
+  <path class="arrow-blue" d="M240 525 L240 596"/>
+  <path class="arrow-blue" d="M370 636 C420 636, 450 304, 501 304"/>
+  <path class="arrow-green" d="M680 363 L680 416"/>
+  <path class="arrow-green" d="M680 546 L680 616"/>
+  <path class="arrow-purple dash" d="M855 304 C910 304, 925 294, 971 294"/>
+  <path class="arrow-purple" d="M855 676 C910 676, 925 540, 971 540"/>
+  <path class="arrow-purple dash" d="M975 578 C915 608, 902 662, 859 676"/>
+  <path class="arrow-orange" d="M855 676 C1040 740, 1210 365, 1321 344"/>
+  <path class="arrow-orange" d="M1418 403 L1418 501"/>
+  <path class="arrow dash" d="M1325 564 C1165 700, 895 785, 530 760 C350 747, 260 710, 240 676"/>
+
+  <rect class="box gray" x="96" y="710" width="288" height="54"/>
+  <text class="body" x="125" y="743">If no face or no candidates: retry / show status.</text>
+
+  <rect class="box purple" x="970" y="690" width="250" height="74"/>
+  <text class="body" x="1000" y="722">Enrollment scripts precompute</text>
+  <text class="body" x="1000" y="746">professional embeddings.</text>
+
+  <text class="small" x="70" y="845">Key code: matching/embedder.py, matching/match.py, database/db_operations.py, and live_match_demo.py.</text>
+</svg>

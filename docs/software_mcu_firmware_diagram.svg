@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">MCU Firmware Software Design</title>
+  <desc id="desc">MCU firmware design showing setup, hardware abstraction, UART protocol, LED control, and finite state machine transitions.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .title { font: 700 42px Arial, Helvetica, sans-serif; fill: #172033; letter-spacing: 0; }
+      .subtitle { font: 400 20px Arial, Helvetica, sans-serif; fill: #536176; letter-spacing: 0; }
+      .section { font: 700 22px Arial, Helvetica, sans-serif; fill: #273449; letter-spacing: 0; }
+      .label { font: 700 20px Arial, Helvetica, sans-serif; fill: #1f2937; letter-spacing: 0; }
+      .body { font: 400 16px Arial, Helvetica, sans-serif; fill: #405064; letter-spacing: 0; }
+      .small { font: 400 14px Arial, Helvetica, sans-serif; fill: #607086; letter-spacing: 0; }
+      .caption { font: 700 13px Arial, Helvetica, sans-serif; fill: #38465a; letter-spacing: 0; }
+      .panel { fill: #ffffff; stroke: #c4d1df; stroke-width: 2; rx: 8; }
+      .box { fill: #ffffff; stroke-width: 2.5; rx: 8; }
+      .state { fill: #ffffff; stroke: #d97706; stroke-width: 3; rx: 8; }
+      .hal { stroke: #5b8def; }
+      .proto { stroke: #7857ff; }
+      .led { stroke: #20a66b; }
+      .setup { stroke: #94a3b8; }
+      .pill { fill: #fff7ed; stroke: #d97706; stroke-width: 1.5; rx: 16; }
+      .uart-pill { fill: #f2efff; stroke: #7857ff; stroke-width: 1.5; rx: 16; }
+      .arrow { fill: none; stroke: #41516a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowhead); }
+      .arrow-orange { fill: none; stroke: #b45f06; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowOrange); }
+      .arrow-purple { fill: none; stroke: #6d4aff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowPurple); }
+      .arrow-green { fill: none; stroke: #16845b; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowGreen); }
+      .dash { stroke-dasharray: 8 8; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#41516a"/></marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#b45f06"/></marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#6d4aff"/></marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="8" refX="8.5" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#16845b"/></marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title" x="70" y="74">MCU Firmware</text>
+  <text class="subtitle" x="70" y="108">A small finite state machine synchronizes presence, match timing, reset messages, and the LED strip cue.</text>
+
+  <rect class="panel" x="70" y="160" width="305" height="640"/>
+  <text class="section" x="100" y="200">Arduino Loop</text>
+  <rect class="box setup" x="105" y="245" width="235" height="95"/>
+  <text class="label" x="135" y="282">setup()</text>
+  <text class="body" x="135" y="314">Serial, HAL, FSM init</text>
+  <rect class="box setup" x="105" y="405" width="235" height="95"/>
+  <text class="label" x="135" y="442">loop()</text>
+  <text class="body" x="135" y="474">fsm_tick()</text>
+  <rect class="box hal" x="105" y="590" width="235" height="118"/>
+  <text class="label" x="135" y="627">HAL</text>
+  <text class="body" x="135" y="659">ToF/button read</text>
+  <text class="body" x="135" y="685">UART and LED calls</text>
+
+  <rect class="panel" x="435" y="160" width="690" height="640"/>
+  <text class="section" x="465" y="200">Finite State Machine</text>
+
+  <rect class="state" x="505" y="265" width="210" height="112"/>
+  <text class="label" x="565" y="304">IDLE</text>
+  <text class="body" x="535" y="336">poll ToF every 100 ms</text>
+  <text class="small" x="535" y="360">wait for presence</text>
+
+  <rect class="state" x="845" y="265" width="210" height="112"/>
+  <text class="label" x="894" y="304">SCANNING</text>
+  <text class="body" x="875" y="336">wait for Pi result</text>
+  <text class="small" x="875" y="360">timeout returns to IDLE</text>
+
+  <rect class="state" x="845" y="555" width="210" height="112"/>
+  <text class="label" x="874" y="594">MATCH_PENDING</text>
+  <text class="body" x="875" y="626">10 s delay</text>
+  <text class="small" x="875" y="650">then cue LED and reset Pi</text>
+
+  <rect class="state" x="505" y="555" width="210" height="112"/>
+  <text class="label" x="535" y="594">MATCH_DISPLAYED</text>
+  <text class="body" x="535" y="626">hold display cue</text>
+  <text class="small" x="535" y="650">10 s then idle</text>
+
+  <path class="arrow-orange" d="M715 321 L841 321"/>
+  <path class="arrow-orange" d="M950 377 L950 551"/>
+  <path class="arrow-orange" d="M845 611 L719 611"/>
+  <path class="arrow-orange" d="M610 555 L610 381"/>
+  <path class="arrow-orange dash" d="M845 350 C780 440, 700 515, 610 551"/>
+  <path class="arrow" d="M222 340 L222 401"/>
+  <path class="arrow" d="M340 452 C395 452, 420 320, 501 320"/>
+  <path class="arrow" d="M340 648 C405 648, 425 600, 501 600"/>
+
+  <rect class="pill" x="720" y="286" width="118" height="34"/>
+  <text class="caption" x="740" y="308">presence</text>
+  <rect class="uart-pill" x="900" y="444" width="98" height="34"/>
+  <text class="caption" x="919" y="466">MATCH</text>
+  <rect class="pill" x="723" y="592" width="116" height="34"/>
+  <text class="caption" x="744" y="614">LED cue</text>
+  <rect class="pill" x="620" y="450" width="94" height="34"/>
+  <text class="caption" x="642" y="472">10 s</text>
+  <rect class="pill" x="735" y="412" width="110" height="34"/>
+  <text class="caption" x="754" y="434">NO_MATCH</text>
+
+  <rect class="panel" x="1185" y="160" width="355" height="640"/>
+  <text class="section" x="1215" y="200">Pi Link and Hardware</text>
+
+  <rect class="box proto" x="1225" y="250" width="275" height="130"/>
+  <text class="label" x="1255" y="287">UART Protocol</text>
+  <text class="body" x="1255" y="319">PRESENCE from MCU or Pi</text>
+  <text class="body" x="1255" y="345">MATCH / NO_MATCH from Pi</text>
+  <text class="small" x="1255" y="369">RESET sent after match timing</text>
+
+  <rect class="box hal" x="1225" y="455" width="275" height="100"/>
+  <text class="label" x="1255" y="492">Presence Input</text>
+  <text class="body" x="1255" y="524">ToF stubbed by button</text>
+
+  <rect class="box led" x="1225" y="630" width="275" height="100"/>
+  <text class="label" x="1255" y="667">WS2812B LED Strip</text>
+  <text class="body" x="1255" y="699">FastLED brightness and fill</text>
+
+  <path class="arrow-purple" d="M1185 315 C1126 315, 1088 321, 1059 321"/>
+  <path class="arrow-purple dash" d="M1055 610 C1128 612, 1170 352, 1221 344"/>
+  <path class="arrow" d="M1225 505 C1172 505, 1114 340, 1059 340"/>
+  <path class="arrow-green" d="M1055 640 C1120 676, 1160 680, 1221 680"/>
+
+  <text class="small" x="70" y="845">Key code: MCU/MCU.ino, MCU/fsm.cpp, and MCU/hal.cpp.</text>
+</svg>

@@ -2,13 +2,14 @@ from database.db_init import get_database_path, initialize_database
 from database.db_operations import add_professional, add_tag_to_professional
 import sqlite3
 
+QUANTUM_BUILDER_CAREER = "Quantum Builder"
 
 DUMMY_PROFESSIONALS = [
     {
         "name": "Dr. Elena Ramirez",
         "title": "Quantum Hardware Engineer",
         "organization": "Midwest Quantum Lab",
-        "quantum_area": "Quantum Hardware",
+        "quantum_area": QUANTUM_BUILDER_CAREER,
         "short_bio": "Builds and tests the chips that help quantum computers work.",
         "long_bio": "Dr. Ramirez designs superconducting hardware and helps teams turn lab prototypes into reliable quantum devices for experiments and future products.",
         "image_path": "assets/images/elena_ramirez.png",
@@ -44,7 +45,7 @@ DUMMY_PROFESSIONALS = [
         "name": "Jordan Kim",
         "title": "Cryogenics Technician",
         "organization": "Illinois Quantum Systems",
-        "quantum_area": "Quantum Hardware",
+        "quantum_area": QUANTUM_BUILDER_CAREER,
         "short_bio": "Keeps quantum machines extremely cold so they can run correctly.",
         "long_bio": "Jordan maintains dilution refrigerators, checks wiring, and solves lab hardware issues that affect quantum processor performance.",
         "image_path": "assets/images/jordan_kim.png",
@@ -68,7 +69,7 @@ DUMMY_PROFESSIONALS = [
         "name": "Krish Sahni",
         "title": "Quantum Device Fabrication Engineer",
         "organization": "NanoFab Quantum",
-        "quantum_area": "Quantum Hardware",
+        "quantum_area": QUANTUM_BUILDER_CAREER,
         "short_bio": "Helps manufacture tiny parts used inside quantum devices.",
         "long_bio": "Noah works in cleanroom environments to fabricate delicate structures that support quantum chips, photonic components, and experimental devices.",
         "image_path": "assets/images/krish_sahni.png",
@@ -92,7 +93,7 @@ DUMMY_PROFESSIONALS = [
         "name": "Connor Tan",
         "title": "Quantum Hardware Engineer",
         "organization": "Pulse Logic Labs",
-        "quantum_area": "Quantum Hardware",
+        "quantum_area": QUANTUM_BUILDER_CAREER,
         "short_bio": "Builds the electronics and hardware systems that help qubits run correctly.",
         "long_bio": "Connor works on the hardware side of quantum systems, helping teams tune electronics, calibrate signals, and improve how quantum devices perform in experiments.",
         "image_path": "assets/images/connor_tan.png",

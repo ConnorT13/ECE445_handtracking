@@ -5,6 +5,7 @@ from hand_tracking.database.db_init import get_database_path, initialize_databas
 from hand_tracking.database.db_operations import add_professional, add_tag_to_professional
 
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+QUANTUM_BUILDER_CAREER = "Quantum Builder"
 
 
 def _image(filename):
@@ -25,13 +26,13 @@ REAL_PROFESSIONALS = [
         "image_path": _image("nathan_arnold.jpg"),
         "fun_fact": None,
         "video_url": None,
-        "tags": ["Quantum Scientist", "Quantum Hardware", "Quantum Entrepreneur"],
+        "tags": ["Quantum Scientist", QUANTUM_BUILDER_CAREER, "Quantum Entrepreneur"],
     },
     {
         "name": "Aaron Fluitt",
         "title": "Senior Director, Technology Partnerships",
         "organization": "PsiQuantum",
-        "quantum_area": "Quantum Collaboration Building",
+        "quantum_area": QUANTUM_BUILDER_CAREER,
         "short_bio": (
             "I build and lead PsiQuantum's scientific partnerships platform. I engage with "
             "universities, national laboratories, research centers, companies, and science "
@@ -55,7 +56,7 @@ REAL_PROFESSIONALS = [
             "You never know where your interests will lead you."
         ),
         "video_url": None,
-        "tags": ["Quantum Collaboration Building"],
+        "tags": [QUANTUM_BUILDER_CAREER],
     },
     {
         "name": "Colin Lualdi",
@@ -74,7 +75,7 @@ REAL_PROFESSIONALS = [
             "opportunity to learn about some new field as a part of your work in quantum!"
         ),
         "video_url": None,
-        "tags": ["Quantum Scientist", "Quantum Hardware"],
+        "tags": ["Quantum Scientist", QUANTUM_BUILDER_CAREER],
     },
     {
         "name": "Ujaan Purakayastha",
@@ -95,7 +96,7 @@ REAL_PROFESSIONALS = [
             "precision -- they did this in LIGO to measure gravitational waves!"
         ),
         "video_url": None,
-        "tags": ["Quantum Scientist", "Quantum Hardware", "Quantum Student"],
+        "tags": ["Quantum Scientist", QUANTUM_BUILDER_CAREER, "Quantum Student"],
     },
     {
         "name": "Kristina Meier, PhD",
@@ -117,13 +118,13 @@ REAL_PROFESSIONALS = [
             "you have to make sure that your persistence can pivot when the goal changes."
         ),
         "video_url": None,
-        "tags": ["Quantum Scientist", "Quantum Hardware"],
+        "tags": ["Quantum Scientist", QUANTUM_BUILDER_CAREER],
     },
     {
         "name": "Andrew Conrad",
         "title": "Quantum Cryptography Researcher",
         "organization": "JPMorganChase",
-        "quantum_area": "Quantum Engineer",
+        "quantum_area": QUANTUM_BUILDER_CAREER,
         "short_bio": "I work on building quantum systems that make banks more secure.",
         "long_bio": "I work on building quantum systems that make banks more secure.",
         "image_path": _image("andrew_conrad.jpg"),
@@ -133,7 +134,7 @@ REAL_PROFESSIONALS = [
             "beautiful mystery that compelled me to learn more."
         ),
         "video_url": None,
-        "tags": ["Quantum Scientist", "Quantum Hardware", "Quantum Engineer"],
+        "tags": ["Quantum Scientist", QUANTUM_BUILDER_CAREER],
     },
 ]
 

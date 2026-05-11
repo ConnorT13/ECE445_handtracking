@@ -10,6 +10,7 @@ from database.db_operations import (
     get_recent_logs
 )
 
+QUANTUM_BUILDER_CAREER = "Quantum Builder"
 
 def print_result(test_name, passed):
     if passed:
@@ -25,7 +26,7 @@ def main():
         name="Dr. Maya Patel",
         title="Quantum Hardware Engineer",
         organization="Quantum Labs",
-        quantum_area="Quantum Hardware",
+        quantum_area=QUANTUM_BUILDER_CAREER,
         short_bio="Builds machines that help power quantum computers.",
         long_bio="Dr. Patel works on the hardware side of quantum systems, helping design and test the physical devices that make quantum computing possible.",
         image_path="assets/images/maya_patel.png",

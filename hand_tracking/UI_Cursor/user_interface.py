@@ -18,6 +18,14 @@ DEFAULT_LAYOUT_CONFIG = {
     "BUTTON_TEXT_PADDING_Y": 6,
     "PROGRESS_RADIUS": 38,
     "PROGRESS_THICKNESS": 6,
+    "LAYOUT_MODE": "column",
+    "GRID_COLUMNS": 2,
+    "GRID_ROWS": 2,
+    "GRID_WIDTH_RATIO": 0.84,
+    "GRID_HEIGHT_RATIO": 0.30,
+    "GRID_BOTTOM_MARGIN_RATIO": 0.03,
+    "HEADER_X_RATIO": 0.04,
+    "HEADER_Y_RATIO": 0.06,
 }
 
 
@@ -38,27 +46,56 @@ def layout_menu_items(frame_w: int, frame_h: int, button_count: int, layout_conf
     )
 
     ui_scale = layout_config["UI_SCALE"]
-    button_w = int(round(safe_w * layout_config["BUTTON_WIDTH_RATIO"] * ui_scale))
-    button_h = int(round(frame_h * layout_config["BUTTON_HEIGHT_RATIO"] * ui_scale))
-    button_w = max(180, min(button_w, safe_w - 10))
-    button_h = max(52, button_h)
-
-    x0 = safe_x + int(round(safe_w * layout_config["UI_LEFT_MARGIN"]))
-    y0 = safe_y + int(round(safe_h * layout_config["UI_TOP_MARGIN"]))
     gap = max(16, int(round(safe_h * layout_config["UI_ITEM_SPACING"] * ui_scale)))
 
-    return {
+    layout = {
         "safe_x": safe_x,
         "safe_y": safe_y,
         "safe_w": safe_w,
         "safe_h": safe_h,
-        "button_w": button_w,
-        "button_h": button_h,
-        "x0": x0,
-        "y0": y0,
         "gap": gap,
         "button_count": button_count,
+        "layout_mode": layout_config.get("LAYOUT_MODE", "column"),
     }
+
+    if layout["layout_mode"] == "grid":
+        cols = max(1, int(layout_config.get("GRID_COLUMNS", 2)))
+        rows = max(1, int(layout_config.get("GRID_ROWS", 2)))
+        grid_w = int(round(safe_w * layout_config.get("GRID_WIDTH_RATIO", 0.84)))
+        grid_h = int(round(safe_h * layout_config.get("GRID_HEIGHT_RATIO", 0.30)))
+        grid_x = safe_x + (safe_w - grid_w) // 2
+        grid_y = safe_y + safe_h - grid_h - int(round(safe_h * layout_config.get("GRID_BOTTOM_MARGIN_RATIO", 0.03)))
+        button_w = max(180, (grid_w - gap * (cols - 1)) // cols)
+        button_h = max(52, (grid_h - gap * (rows - 1)) // rows)
+        layout.update(
+            {
+                "grid_x": grid_x,
+                "grid_y": grid_y,
+                "grid_w": grid_w,
+                "grid_h": grid_h,
+                "button_w": button_w,
+                "button_h": button_h,
+                "grid_cols": cols,
+                "grid_rows": rows,
+            }
+        )
+        return layout
+
+    button_w = int(round(safe_w * layout_config["BUTTON_WIDTH_RATIO"] * ui_scale))
+    button_h = int(round(frame_h * layout_config["BUTTON_HEIGHT_RATIO"] * ui_scale))
+    button_w = max(180, min(button_w, safe_w - 10))
+    button_h = max(52, button_h)
+    x0 = safe_x + int(round(safe_w * layout_config["UI_LEFT_MARGIN"]))
+    y0 = safe_y + int(round(safe_h * layout_config["UI_TOP_MARGIN"]))
+    layout.update(
+        {
+            "button_w": button_w,
+            "button_h": button_h,
+            "x0": x0,
+            "y0": y0,
+        }
+    )
+    return layout
 
 
 class Button:
@@ -126,15 +163,26 @@ class HoverSelectUI:
         layout = layout_menu_items(frame_w, frame_h, len(self.button_labels), self.layout_config)
         bw = layout["button_w"]
         bh = layout["button_h"]
-        x0 = layout["x0"]
-        y0 = layout["y0"]
         gap = layout["gap"]
         self.buttons = []
 
-        for index, label in enumerate(self.button_labels):
-            x = x0
-            y = y0 + index * (bh + gap)
-            self.buttons.append(Button(label, x, y, bw, bh))
+        if layout["layout_mode"] == "grid":
+            grid_x = layout["grid_x"]
+            grid_y = layout["grid_y"]
+            cols = layout["grid_cols"]
+            for index, label in enumerate(self.button_labels):
+                row = index // cols
+                col = index % cols
+                x = grid_x + col * (bw + gap)
+                y = grid_y + row * (bh + gap)
+                self.buttons.append(Button(label, x, y, bw, bh))
+        else:
+            x0 = layout["x0"]
+            y0 = layout["y0"]
+            for index, label in enumerate(self.button_labels):
+                x = x0
+                y = y0 + index * (bh + gap)
+                self.buttons.append(Button(label, x, y, bw, bh))
 
         self._initialized_layout = True
 
@@ -268,7 +316,7 @@ class HoverSelectUI:
                 self.hover_start_t = now
 
         # Draw header
-        safe_x, safe_y, safe_w, _ = compute_safe_area(
+        safe_x, safe_y, safe_w, safe_h = compute_safe_area(
             w,
             h,
             self.layout_config["VISIBLE_WIDTH_RATIO"],
@@ -277,7 +325,10 @@ class HoverSelectUI:
         cv2.putText(
             frame,
             self.header_text,
-            (safe_x + int(safe_w * self.layout_config["UI_LEFT_MARGIN"]), max(36, safe_y + 28)),
+            (
+                safe_x + int(safe_w * self.layout_config.get("HEADER_X_RATIO", self.layout_config["UI_LEFT_MARGIN"])),
+                max(36, safe_y + int(safe_h * self.layout_config.get("HEADER_Y_RATIO", 0.06))),
+            ),
             cv2.FONT_HERSHEY_SIMPLEX,
             self.layout_config["HEADER_SCALE"],
             (255, 255, 255),

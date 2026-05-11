@@ -61,19 +61,18 @@ HardwareProfile = namedtuple(
         "name",
         "enable_tof",
         "enable_uart",
-        "camera_backend",
-        "configure_mjpg",
+        "camera_candidates",
         "fullscreen_window",
         "uart_device",
         "tof_binary_path",
     ],
 )
+CameraCandidate = namedtuple("CameraCandidate", ["label", "backend", "configure_mjpg"])
 
 WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
 MATCH_INTERVAL_SECONDS = 1.5
 TOP_K_MATCHES = 3
-INTRO_DURATION_SECONDS = 7.0
 CAMERA_ROTATION = None
 WINDOW_OUTPUT_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 OLD_SCREEN_HEIGHT_CM = 71.0
@@ -92,27 +91,27 @@ HEADER_SCALE = 0.58
 FPS_SCALE = 0.62
 BUTTON_WIDTH_RATIO = 0.44
 BUTTON_HEIGHT_RATIO = 0.07
+CAREER_GRID_WIDTH_RATIO = 0.84
+CAREER_GRID_HEIGHT_RATIO = 0.30
+CAREER_GRID_BOTTOM_MARGIN_RATIO = 0.03
+CAREER_GRID_HEADER_X_RATIO = 0.12
+CAREER_GRID_HEADER_Y_RATIO = 0.60
 MATCHING_PANEL_MARGIN_X = 0.05
 MATCHING_PANEL_MARGIN_Y = 0.04
-INTRO_TITLE_SCALE = 0.78
-INTRO_SUBTITLE_SCALE = 0.60
 PROFILE_TITLE_SCALE = 0.78
 PROFILE_NAME_SCALE = 0.74
 TORSO_GUIDE_WIDTH_RATIO = 0.42
 TORSO_GUIDE_HEIGHT_RATIO = 0.74
 TORSO_GUIDE_X_OFFSET_RATIO = -0.08
 TORSO_GUIDE_Y_OFFSET_RATIO = 0.18
-TORSO_GUIDE_MENU_CLEARANCE_PX = 36
+QUANTUM_BUILDER_CAREER = "Quantum Builder"
 FEATURED_CAREERS = [
     "Quantum Scientist",
-    "Quantum Hardware",
+    QUANTUM_BUILDER_CAREER,
     "Quantum Entrepreneur",
-    "Quantum Collaboration Building",
     "Quantum Student",
-    "Quantum Engineer",
 ]
 
-STATE_INTRO = "intro"
 STATE_WAIT_FOR_START = "wait_for_start"
 STATE_SELECT_CAREER = "select_career"
 STATE_MATCHING = "matching"
@@ -131,6 +130,25 @@ PRESENCE_MEASUREMENT_MAX_WIDTH_PX = 320
 HAND_TRACKING_MAX_WIDTH_PX = 320
 
 
+def _camera_candidate(label, backend_attr_name, configure_mjpg):
+    backend = getattr(cv2, backend_attr_name, None)
+    if backend is None:
+        return None
+    return CameraCandidate(label=label, backend=backend, configure_mjpg=configure_mjpg)
+
+
+def _build_laptop_camera_candidates():
+    candidates = [
+        _camera_candidate("v4l2+mjpg", "CAP_V4L2", True),
+        _camera_candidate("any+mjpg", "CAP_ANY", True),
+        _camera_candidate("avfoundation", "CAP_AVFOUNDATION", False),
+        _camera_candidate("msmf", "CAP_MSMF", False),
+        _camera_candidate("dshow", "CAP_DSHOW", False),
+        _camera_candidate("any", "CAP_ANY", False),
+    ]
+    return [candidate for candidate in candidates if candidate is not None]
+
+
 def _resolve_hardware_profile():
     target = os.environ.get(ENV_HARDWARE_TARGET, DEFAULT_HARDWARE_TARGET).strip().lower()
     profiles = {
@@ -138,8 +156,7 @@ def _resolve_hardware_profile():
             name="laptop",
             enable_tof=False,
             enable_uart=False,
-            camera_backend=getattr(cv2, "CAP_ANY", 0),
-            configure_mjpg=False,
+            camera_candidates=_build_laptop_camera_candidates(),
             fullscreen_window=False,
             uart_device="/dev/serial0",
             tof_binary_path=DEFAULT_TOF_BINARY_PATH,
@@ -148,8 +165,13 @@ def _resolve_hardware_profile():
             name="rpi",
             enable_tof=True,
             enable_uart=True,
-            camera_backend=getattr(cv2, "CAP_V4L2", getattr(cv2, "CAP_ANY", 0)),
-            configure_mjpg=True,
+            camera_candidates=[
+                CameraCandidate(
+                    label="v4l2+mjpg",
+                    backend=getattr(cv2, "CAP_V4L2", getattr(cv2, "CAP_ANY", 0)),
+                    configure_mjpg=True,
+                ),
+            ],
             fullscreen_window=True,
             uart_device="/dev/serial0",
             tof_binary_path=DEFAULT_TOF_BINARY_PATH,
@@ -346,14 +368,50 @@ def draw_presence_debug_text(frame, distance_cm, is_in_range):
     return debug_frame
 
 
-def open_camera(hardware_profile):
-    cap = cv2.VideoCapture(0, hardware_profile.camera_backend)
-    if hardware_profile.configure_mjpg:
+def _configure_camera(cap, camera_candidate):
+    if camera_candidate.configure_mjpg:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cap.set(cv2.CAP_PROP_FPS, 30)
-    return cap
+
+
+def _camera_has_usable_frame(cap, attempts=3):
+    for _ in range(attempts):
+        ok, frame = cap.read()
+        if ok and frame is not None and frame.size > 0:
+            return True
+    return False
+
+
+def open_camera(hardware_profile):
+    last_candidate = None
+    for camera_candidate in hardware_profile.camera_candidates:
+        last_candidate = camera_candidate
+        logging.info(
+            "[Camera] Trying backend '%s' (mjpg=%s).",
+            camera_candidate.label,
+            camera_candidate.configure_mjpg,
+        )
+        cap = cv2.VideoCapture(0, camera_candidate.backend)
+        if not cap.isOpened():
+            logging.warning("[Camera] Backend '%s' could not open camera 0.", camera_candidate.label)
+            cap.release()
+            continue
+
+        _configure_camera(cap, camera_candidate)
+        if _camera_has_usable_frame(cap):
+            logging.info("[Camera] Using backend '%s'.", camera_candidate.label)
+            return cap
+
+        logging.warning("[Camera] Backend '%s' opened but did not deliver frames.", camera_candidate.label)
+        cap.release()
+
+    failed_backend = "none" if last_candidate is None else last_candidate.label
+    raise RuntimeError(
+        f"Could not get usable frames from any camera backend for target '{hardware_profile.name}'. "
+        f"Last attempted backend: {failed_backend}."
+    )
 
 
 def send_uart_line(ser, line):
@@ -466,6 +524,14 @@ def build_ui_layout_config(visible_ratios):
     return {
         "VISIBLE_WIDTH_RATIO": visible_ratios["visible_width_ratio"],
         "VISIBLE_HEIGHT_RATIO": visible_ratios["visible_height_ratio"],
+        "LAYOUT_MODE": "grid",
+        "GRID_COLUMNS": 2,
+        "GRID_ROWS": 2,
+        "GRID_WIDTH_RATIO": CAREER_GRID_WIDTH_RATIO,
+        "GRID_HEIGHT_RATIO": CAREER_GRID_HEIGHT_RATIO,
+        "GRID_BOTTOM_MARGIN_RATIO": CAREER_GRID_BOTTOM_MARGIN_RATIO,
+        "HEADER_X_RATIO": CAREER_GRID_HEADER_X_RATIO,
+        "HEADER_Y_RATIO": CAREER_GRID_HEADER_Y_RATIO,
         "UI_SCALE": UI_SCALE,
         "UI_LEFT_MARGIN": UI_LEFT_MARGIN,
         "UI_TOP_MARGIN": UI_TOP_MARGIN,
@@ -902,90 +968,6 @@ def extract_match_region(frame, guide_geometry):
     return frame[y1:y2, x1:x2]
 
 
-def draw_intro_screen(frame_shape, seconds_remaining):
-    frame = np.full(frame_shape, 22, dtype=np.uint8)
-    h, w, _ = frame_shape
-    seconds_display = max(0, int(seconds_remaining + 0.999))
-
-    cv2.rectangle(frame, (70, 70), (w - 70, h - 70), (28, 28, 28), thickness=-1)
-    cv2.rectangle(frame, (70, 70), (w - 70, h - 70), (220, 220, 220), thickness=2)
-
-    cv2.putText(
-        frame,
-        f"Starts in: {seconds_display}",
-        (w - 260, 110),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.68,
-        (0, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-
-    draw_text_block(
-        frame,
-        "Welcome to the Quantum Career Smart Mirror",
-        110,
-        145,
-        max_chars=28,
-        line_height=34,
-        color=(255, 255, 255),
-        max_lines=2,
-        scale=INTRO_TITLE_SCALE,
-        thickness=2,
-    )
-
-    draw_text_block(
-        frame,
-        "This device lets you explore quantum careers using hand gestures and live face matching.",
-        110,
-        216,
-        max_chars=42,
-        line_height=26,
-        color=(220, 220, 220),
-        max_lines=4,
-        scale=INTRO_SUBTITLE_SCALE,
-        thickness=1,
-    )
-
-    cv2.putText(
-        frame,
-        "How to Use It",
-        (110, 320),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.68,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    draw_text_block(
-        frame,
-        "1. Wait for the career selection screen.\n2. Use your hand to move the cursor.\n3. Hover over a quantum career for about 1.5 seconds.\n4. Look at the camera so the system can match your face.\n5. Read the matched professional profile on screen.",
-        110,
-        352,
-        max_chars=43,
-        line_height=23,
-        color=(220, 220, 220),
-        max_lines=8,
-        scale=0.52,
-        thickness=1,
-    )
-
-    draw_text_block(
-        frame,
-        "Career selection will begin automatically after the countdown.",
-        110,
-        h - 110,
-        max_chars=44,
-        line_height=22,
-        color=(220, 220, 220),
-        max_lines=2,
-        scale=0.50,
-        thickness=1,
-    )
-
-    return frame
-
-
 def draw_wait_for_start_screen(frame_shape, distance_cm=None, is_in_range=False):
     frame = np.zeros(frame_shape, dtype=np.uint8)
     return draw_presence_debug_text(frame, distance_cm, is_in_range)
@@ -1176,11 +1158,12 @@ def main():
         force=True  # overrides any existing handler configuration
     )
     logging.info(
-        "Hardware target '%s' active (UART=%s, ToF=%s, fullscreen=%s).",
+        "Hardware target '%s' active (UART=%s, ToF=%s, fullscreen=%s, camera_candidates=%s).",
         hardware_profile.name,
         hardware_profile.enable_uart,
         hardware_profile.enable_tof,
         hardware_profile.fullscreen_window,
+        [candidate.label for candidate in hardware_profile.camera_candidates],
     )
     if hardware_profile.enable_tof:
         tof_thread = threading.Thread(
@@ -1219,9 +1202,10 @@ def main():
         cv2.destroyAllWindows()
         return
 
-    cap = open_camera(hardware_profile)
-    if not cap.isOpened():
-        print("ERROR: Could not open camera.")
+    try:
+        cap = open_camera(hardware_profile)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
         tof_stop_event.set()
         embed_stop_event.set()
         embedder.close()
@@ -1241,7 +1225,6 @@ def main():
     )
 
     state = STATE_WAIT_FOR_START
-    intro_start_t = None
     selected_career = None
     matching_status = "Waiting to start matching."
     matched_professional = None
@@ -1257,7 +1240,6 @@ def main():
 
     def reset_to_wait_for_start():
         nonlocal state
-        nonlocal intro_start_t
         nonlocal selected_career
         nonlocal matching_status
         nonlocal matched_professional
@@ -1270,7 +1252,6 @@ def main():
         nonlocal last_in_range_t
 
         state = STATE_WAIT_FOR_START
-        intro_start_t = None
         selected_career = None
         matching_status = "Waiting to start matching."
         matched_professional = None
@@ -1300,8 +1281,7 @@ def main():
                 if message == "RESET":
                     reset_requested = True
                 elif message == "PRESENCE" and state == STATE_WAIT_FOR_START:
-                    intro_start_t = now
-                    state = STATE_INTRO
+                    state = STATE_SELECT_CAREER
                     last_in_range_t = now
 
             if reset_requested:
@@ -1341,8 +1321,7 @@ def main():
             if state == STATE_WAIT_FOR_START and _is_human_presence(drain_tof_queue(tof_queue)):
                 # Notify MCU so its FSM also progresses to SCANNING.
                 send_uart_line(ser, "PRESENCE")
-                intro_start_t = now
-                state = STATE_INTRO
+                state = STATE_SELECT_CAREER
                 last_in_range_t = now
 
             if state == STATE_WAIT_FOR_START:
@@ -1352,8 +1331,7 @@ def main():
                         presence_in_range_since_t = now
                     elif now - presence_in_range_since_t >= PRESENCE_CONFIRMATION_SECONDS:
                         send_uart_line(ser, "PRESENCE")
-                        intro_start_t = now
-                        state = STATE_INTRO
+                        state = STATE_SELECT_CAREER
                         last_in_range_t = now
                 else:
                     presence_in_range_since_t = None
@@ -1369,8 +1347,7 @@ def main():
                     break
                 if key == 13:
                     send_uart_line(ser, "PRESENCE")
-                    intro_start_t = now
-                    state = STATE_INTRO
+                    state = STATE_SELECT_CAREER
                     last_in_range_t = now
                 continue
 
@@ -1379,17 +1356,6 @@ def main():
                 last_in_range_t = now
             elif last_in_range_t is not None and now - last_in_range_t >= PRESENCE_LOSS_TIMEOUT_SECONDS:
                 reset_to_wait_for_start()
-                continue
-
-            if state == STATE_INTRO:
-                seconds_remaining = max(0.0, INTRO_DURATION_SECONDS - (now - intro_start_t))
-                intro_frame = draw_intro_screen((DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3), seconds_remaining)
-                cv2.imshow(WINDOW_TITLE, rotate_output_frame(intro_frame))
-                key = cv2.waitKey(1) & 0xFF
-                if key in (27, ord("q")):
-                    break
-                if seconds_remaining <= 0.0:
-                    state = STATE_SELECT_CAREER
                 continue
 
             if state == STATE_PROFILE:
@@ -1417,9 +1383,7 @@ def main():
                 tip_norm = tracker.get_index_tip_norm(hand_tracking_frame)
                 ui.update_cursor_from_norm(tip_norm, w, h)
                 events = ui.update_and_draw(display_frame)
-                menu_right_edge = get_menu_right_edge(ui)
-                min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
-                guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
+                guide_geometry = get_torso_guide_geometry(w, h)
                 draw_torso_guide(display_frame, guide_geometry)
                 state_changed = False
                 for event in events:
@@ -1443,9 +1407,7 @@ def main():
                 if state_changed:
                     draw_matching_overlay(display_frame, selected_career, matching_status, visible_ratios)
             elif state == STATE_MATCHING:
-                menu_right_edge = get_menu_right_edge(ui)
-                min_left_x = None if menu_right_edge is None else menu_right_edge + TORSO_GUIDE_MENU_CLEARANCE_PX
-                guide_geometry = get_torso_guide_geometry(w, h, min_left_x=min_left_x)
+                guide_geometry = get_torso_guide_geometry(w, h)
                 draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
 
                 # Submit a new embedding job every MATCH_INTERVAL_SECONDS.

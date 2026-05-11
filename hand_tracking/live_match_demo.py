@@ -73,6 +73,7 @@ WINDOW_TITLE = "Smart Mirror Career Match Demo"
 MATCH_BACKEND = "insightface"
 MATCH_INTERVAL_SECONDS = 0.35
 TOP_K_MATCHES = 3
+MATCHING_GUIDANCE_FADE_SECONDS = 1.6
 CAMERA_ROTATION = None
 WINDOW_OUTPUT_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 OLD_SCREEN_HEIGHT_CM = 71.0
@@ -128,6 +129,7 @@ ACTIVE_PRESENCE_CHECK_INTERVAL_SECONDS = 1.00
 PRESENCE_CONFIRMATION_SECONDS = 0.40
 PRESENCE_LOSS_TIMEOUT_SECONDS = 2.00
 MATCHING_SCREEN_LOSS_TIMEOUT_SECONDS = 5.00
+PROFILE_SCREEN_DISPLAY_SECONDS = 20.00
 WAKE_DISTANCE_CM = 85.0
 SLEEP_DISTANCE_CM = 100.0
 REFERENCE_DISTANCE_CM = 60.0
@@ -966,6 +968,41 @@ def draw_search_feedback(frame, panel_x, panel_y, panel_w):
         cv2.rectangle(frame, (left, bar_y + 1), (right, bar_y + bar_h - 1), (0, 255, 255), thickness=-1)
 
 
+def draw_fading_message(frame, message, started_t, duration_seconds):
+    elapsed = time.time() - started_t
+    progress = min(1.0, max(0.0, elapsed / duration_seconds))
+    alpha = max(0.0, 1.0 - progress)
+    if alpha <= 0.0:
+        return
+
+    overlay = frame.copy()
+    lines = wrap_text(message, 26)
+    frame_h, frame_w = frame.shape[:2]
+    box_w = min(520, frame_w - 80)
+    box_h = 60 + 38 * len(lines)
+    box_x = (frame_w - box_w) // 2
+    box_y = frame_h // 2 - box_h // 2
+
+    cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (18, 18, 18), thickness=-1)
+    cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (220, 220, 220), thickness=2)
+    for line_index, line in enumerate(lines):
+        line_size, _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.78, 2)
+        line_x = (frame_w - line_size[0]) // 2
+        line_y = box_y + 48 + line_index * 36
+        cv2.putText(
+            overlay,
+            line,
+            (line_x, line_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.78,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0, frame)
+
+
 def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
     h, w, _ = frame.shape
     safe_area = compute_safe_area(w, h, visible_ratios)
@@ -979,21 +1016,11 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
     cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (20, 20, 20), thickness=-1)
     cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (220, 220, 220), thickness=2)
 
-    cv2.putText(
-        frame,
-        "Matching In Progress",
-        (panel_x + 20, panel_y + 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.66,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
     draw_text_block(
         frame,
         f"Selected career: {selected_career}",
         panel_x + 20,
-        panel_y + 70,
+        panel_y + 42,
         max_chars=32,
         line_height=20,
         color=(0, 255, 255),
@@ -1003,29 +1030,17 @@ def draw_matching_overlay(frame, selected_career, status_text, visible_ratios):
     )
     draw_text_block(
         frame,
-        "Look at the camera. Once a face is matched, the full professional profile will replace this screen.",
+        "Look at the camera.",
         panel_x + 20,
-        panel_y + 104,
-        max_chars=34,
+        panel_y + 80,
+        max_chars=24,
         line_height=19,
         color=(215, 215, 215),
-        max_lines=4,
-        scale=0.46,
+        max_lines=1,
+        scale=0.52,
         thickness=1,
     )
     draw_search_feedback(frame, panel_x, panel_y, panel_w)
-    draw_text_block(
-        frame,
-        status_text,
-        panel_x + 20,
-        panel_y + 188,
-        max_chars=36,
-        line_height=18,
-        color=(215, 215, 215),
-        max_lines=1,
-        scale=0.44,
-        thickness=1,
-    )
 
     cv2.putText(
         frame,
@@ -1067,10 +1082,26 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
     cv2.rectangle(frame, (40, 40), (w - 40, h - 40), (30, 30, 30), thickness=-1)
     cv2.rectangle(frame, (40, 40), (w - 40, h - 40), (220, 220, 220), thickness=2)
 
+    guide_geometry = get_torso_guide_geometry(w, h, mode="matching")
+    image_x = max(64, guide_geometry["left_x"])
+    image_y = max(88, guide_geometry["top_y"] + 10)
+    image_w = min(w - image_x - 64, guide_geometry["right_x"] - guide_geometry["left_x"])
+    section_gap = 14
+    meta_block_h = 146
+    lower_box_h = 108
+    footer_reserved_h = 74
+    max_image_h = (
+        (h - footer_reserved_h)
+        - image_y
+        - (meta_block_h + section_gap + 170 + section_gap + lower_box_h + 24)
+    )
+    image_h = int((guide_geometry["bottom_y"] - guide_geometry["top_y"]) * 0.54)
+    image_h = min(image_h, max(360, max_image_h))
+
     cv2.putText(
         frame,
         "Matched Quantum Professional",
-        (70, 88),
+        (70, 80),
         cv2.FONT_HERSHEY_SIMPLEX,
         PROFILE_TITLE_SCALE,
         (255, 255, 255),
@@ -1090,17 +1121,14 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         thickness=1,
     )
 
-    image_x = 70
-    image_y = 160
-    image_w = 300
-    image_h = 340
     draw_profile_image(frame, professional[7], image_x, image_y, image_w, image_h)
 
-    text_x = 410
+    content_top_y = image_y + image_h + 24
+    text_x = 70
     cv2.putText(
         frame,
         professional[1],
-        (text_x, 190),
+        (text_x, content_top_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         PROFILE_NAME_SCALE,
         (255, 255, 255),
@@ -1111,64 +1139,69 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         frame,
         professional[2] or "Unknown title",
         text_x,
-        228,
-        max_chars=28,
-        line_height=22,
+        content_top_y + 38,
+        max_chars=42,
+        line_height=24,
         color=(225, 225, 225),
         max_lines=2,
-        scale=0.58,
+        scale=0.60,
         thickness=1,
     )
     draw_text_block(
         frame,
         professional[3] or "Unknown organization",
         text_x,
-        288,
-        max_chars=30,
-        line_height=20,
+        content_top_y + 96,
+        max_chars=46,
+        line_height=22,
         color=(205, 205, 205),
         max_lines=2,
-        scale=0.50,
+        scale=0.54,
         thickness=1,
     )
     draw_text_block(
         frame,
         f"Quantum Area: {professional[4] or 'Unknown'}",
         text_x,
-        338,
-        max_chars=30,
-        line_height=20,
+        content_top_y + 146,
+        max_chars=42,
+        line_height=22,
         color=(0, 255, 255),
-        max_lines=2,
-        scale=0.48,
+        max_lines=1,
+        scale=0.52,
         thickness=1,
     )
 
+    meta_bottom_y = content_top_y + meta_block_h
+    long_box_y = meta_bottom_y + section_gap
+    footer_text_y = h - 52
+    long_box_h = max(170, footer_text_y - (long_box_y + section_gap + lower_box_h + 18))
+    draw_labeled_text_section(
+        frame,
+        "Longer Description",
+        professional[6] or "No long bio available.",
+        x=70,
+        y=long_box_y,
+        width=w - 140,
+        height=long_box_h,
+        max_chars=56,
+        line_height=20,
+        body_scale=0.47,
+        title_scale=0.52,
+    )
+
+    lower_box_y = long_box_y + long_box_h + section_gap
     draw_labeled_text_section(
         frame,
         "Short Bio",
         professional[5] or "No short bio available.",
         x=70,
-        y=530,
-        width=300,
-        height=150,
-        max_chars=34,
-        line_height=20,
-        body_scale=0.46,
-        title_scale=0.54,
-    )
-
-    draw_labeled_text_section(
-        frame,
-        "Longer Description",
-        professional[6] or "No long bio available.",
-        x=410,
-        y=390,
-        width=260,
-        height=170,
-        max_chars=28,
+        y=lower_box_y,
+        width=(w - 164) // 2,
+        height=lower_box_h,
+        max_chars=26,
         line_height=18,
-        body_scale=0.44,
+        body_scale=0.43,
         title_scale=0.52,
     )
 
@@ -1176,13 +1209,13 @@ def draw_profile_screen(frame_shape, professional, selected_career, matched_test
         frame,
         "Fun Fact",
         professional[8] or "No fun fact available.",
-        x=410,
-        y=590,
-        width=260,
-        height=110,
-        max_chars=28,
+        x=82 + (w - 164) // 2,
+        y=lower_box_y,
+        width=(w - 164) // 2,
+        height=lower_box_h,
+        max_chars=26,
         line_height=18,
-        body_scale=0.44,
+        body_scale=0.43,
         title_scale=0.52,
     )
 
@@ -1324,6 +1357,9 @@ def main():
     last_measured_distance_cm = None
     presence_in_range_since_t = None
     last_in_range_t = None
+    matching_guidance_started_t = None
+    matching_guidance_shown = False
+    profile_started_t = None
 
     def reset_to_wait_for_start():
         nonlocal state
@@ -1337,6 +1373,9 @@ def main():
         nonlocal reset_requested
         nonlocal presence_in_range_since_t
         nonlocal last_in_range_t
+        nonlocal matching_guidance_started_t
+        nonlocal matching_guidance_shown
+        nonlocal profile_started_t
 
         state = STATE_WAIT_FOR_START
         selected_career = None
@@ -1349,6 +1388,9 @@ def main():
         reset_requested = False
         presence_in_range_since_t = None
         last_in_range_t = None
+        matching_guidance_started_t = None
+        matching_guidance_shown = False
+        profile_started_t = None
         ui.set_buttons(careers, "")
         ui.set_layout_config(ui_layout_config)
 
@@ -1440,20 +1482,23 @@ def main():
                     last_in_range_t = now
                 continue
 
-            active_presence_loss_timeout = (
-                MATCHING_SCREEN_LOSS_TIMEOUT_SECONDS
-                if state == STATE_MATCHING
-                else PRESENCE_LOSS_TIMEOUT_SECONDS
-            )
-
             # For all active states: update presence keep-alive; reset if person has left.
             if keep_awake_in_range:
                 last_in_range_t = now
-            elif last_in_range_t is not None and now - last_in_range_t >= active_presence_loss_timeout:
+                matching_guidance_started_t = None
+                matching_guidance_shown = False
+            elif (
+                state not in (STATE_MATCHING, STATE_PROFILE)
+                and last_in_range_t is not None
+                and now - last_in_range_t >= PRESENCE_LOSS_TIMEOUT_SECONDS
+            ):
                 reset_to_wait_for_start()
                 continue
 
             if state == STATE_PROFILE:
+                if profile_started_t is not None and now - profile_started_t >= PROFILE_SCREEN_DISPLAY_SECONDS:
+                    reset_to_wait_for_start()
+                    continue
                 profile_frame = draw_profile_screen(
                     (DISPLAY_CANVAS_HEIGHT_PX, DISPLAY_CANVAS_WIDTH_PX, 3),
                     matched_professional,
@@ -1469,6 +1514,7 @@ def main():
                     selected_career = None
                     matched_professional = None
                     matched_test_name = None
+                    profile_started_t = None
                     ui.set_buttons(careers, "")
                     ui.set_layout_config(ui_layout_config)
                 continue
@@ -1496,6 +1542,8 @@ def main():
                             matching_status = f"No professionals exist for {selected_career}."
                         last_match_t = 0.0
                         last_in_range_t = now
+                        matching_guidance_started_t = None
+                        matching_guidance_shown = False
                         state_changed = True
                         break
 
@@ -1504,6 +1552,29 @@ def main():
             elif state == STATE_MATCHING:
                 guide_geometry = get_torso_guide_geometry(w, h, ui_layout_config, mode="matching")
                 draw_torso_guide(display_frame, guide_geometry, "Keep your face and torso inside the guide")
+
+                if (
+                    not keep_awake_in_range
+                    and last_in_range_t is not None
+                    and matching_guidance_started_t is None
+                    and now - last_in_range_t >= MATCHING_SCREEN_LOSS_TIMEOUT_SECONDS
+                ):
+                    if matching_guidance_shown:
+                        reset_to_wait_for_start()
+                        continue
+                    matching_guidance_started_t = now
+
+                if matching_guidance_started_t is not None:
+                    draw_fading_message(
+                        display_frame,
+                        "Position yourself in the silhouette",
+                        matching_guidance_started_t,
+                        MATCHING_GUIDANCE_FADE_SECONDS,
+                    )
+                    if now - matching_guidance_started_t >= MATCHING_GUIDANCE_FADE_SECONDS:
+                        matching_guidance_started_t = None
+                        matching_guidance_shown = True
+                        last_in_range_t = now
 
                 # Submit a new embedding job every MATCH_INTERVAL_SECONDS.
                 # put_nowait drops the frame if the worker is still busy (queue full).
@@ -1530,6 +1601,7 @@ def main():
                         matched_professional = source_professional
                         matched_test_name = source_professional[1]
                         state = STATE_PROFILE
+                        profile_started_t = now
                         if not match_sent:
                             send_uart_line(ser, "MATCH")
                             match_sent = True
